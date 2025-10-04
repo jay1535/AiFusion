@@ -1,9 +1,19 @@
+"use client";
+import { Button } from "@/components/ui/button";
+import { useTheme } from "next-themes";
 import Image from "next/image";
 
 export default function Home() {
+  const { setTheme } = useTheme();
   return (
-   <div className="bg-blue-200 p-10 h-50 w-full text-black text-2xl">
-   Hello This is the initial setup of AI Fusion
-   </div>
+    <div className="flex flex-col items-center justify-center min-h-screen py-2">
+      <Button onClick={() => setTheme("dark")}>
+        Dark Mode
+      </Button>
+      <Button onClick={() => setTheme("light")}>
+        Light mode
+      </Button>
+    </div>
+
   );
 }
