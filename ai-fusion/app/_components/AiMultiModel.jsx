@@ -10,9 +10,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Lock, MessageSquare } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 function AiMultiModel() {
   const [aiModelList, setAiModelList] = useState(AiModelList);
+  const onToggleChange = (model,  value)=>{
+    setAiModelList((prevList)=>
+      prevList.map((item)=>
+        item.model === model ? {...item, enable: value} : item
+      )
+    );
+
+  }
 
   return (
     <div
@@ -21,9 +31,9 @@ function AiMultiModel() {
       {aiModelList.map((model, index) => (
         <div
           key={index}
-          className="flex flex-col border rounded-2xl shadow-md bg-card/20 
+          className={`flex flex-col border rounded-2xl shadow-md bg-card/20 
                      hover:bg-card/30 transition-all duration-200
-                     min-w-[400px] max-w-[420px] h-full p-4"
+                     h-full p-4 ${model.enable ?"min-w-[400px] max-w-[420px] " :"min-w-[160px]" }`}
         >
           {/* Header */}
           <div className="flex w-full items-center justify-between mb-4">
@@ -35,7 +45,7 @@ function AiMultiModel() {
                 height={28}
                 className="rounded-md"
               />
-              <Select>
+           {model.enable &&   <Select>
                 <SelectTrigger className="w-[180px]">
                   <SelectValue placeholder={model.subModel[0].name} />
                 </SelectTrigger>
@@ -46,14 +56,23 @@ function AiMultiModel() {
                     </SelectItem>
                   ))}
                 </SelectContent>
-              </Select>
+              </Select> }
             </div>
-            <Switch />
+           {model.enable ? <Switch checked={model.enable}
+            onCheckedChange={(v)=>
+              onToggleChange(model.model, v)}
+            /> : <MessageSquare onClick={()=> onToggleChange(model.model, true)}/>}
           </div>
-
+           {model.premium && model.enable && <div className="flex items-center justify-center h-full"> <Button>
+          <Lock/> Upgrade To Unlock
+        </Button>
+        </div>}
         
         </div>
       ))}
+      <div>
+        
+      </div>
     </div>
   );
 }

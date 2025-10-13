@@ -6,7 +6,7 @@ export default [
 
     icon: "/gpt.png",
 
-    premium: true,
+    premium: false,
 
     enable: true,
 
@@ -58,7 +58,7 @@ export default [
 
     icon: "/deepseek.png",
 
-    premium: true,
+    premium: false,
 
     enable: true,
 
@@ -72,25 +72,7 @@ export default [
 
   },
 
-  {
-
-    model: "Mistral",
-
-    icon: "/mistral.png",
-
-    premium: true,
-
-    enable: true,
-
-    subModel: [
-
-      { name: "Mistral Medium 2505", premium: true, id: "mistral-medium-2505" },
-
-      { name: "Ministral 3B", premium: false, id: "Ministral-3B" },
-
-    ],
-
-  },
+ 
 
   {
 
@@ -98,7 +80,7 @@ export default [
 
     icon: "/grok.png",
 
-    premium: true,
+    premium: false,
 
     enable: true,
 
@@ -118,7 +100,7 @@ export default [
 
     icon: "/cohere.png",
 
-    premium: false,
+    premium: true,
 
     enable: true,
 
@@ -151,6 +133,26 @@ export default [
     ],
 
   },
+   {
+
+    model: "Mistral",
+
+    icon: "/mistral.png",
+
+    premium: true,
+
+    enable: true,
+
+    subModel: [
+
+      { name: "Mistral Medium 2505", premium: true, id: "mistral-medium-2505" },
+
+      { name: "Ministral 3B", premium: false, id: "Ministral-3B" },
+
+    ],
+
+  },
 
 ];
+
 
