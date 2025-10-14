@@ -10,11 +10,14 @@ import {
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "next-themes";
-import { MessageSquare, Moon, Sun } from "lucide-react";
+import { Bolt, Logs, MessageSquare, Moon, Sun, User2Icon, Zap } from "lucide-react";
+import { SignIn, SignInButton, UserButton, useUser } from "@clerk/nextjs";
+import UsageCreditProgress from "./UsageCreditProgress";
 
 function AppSidebar() {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
+  const {user} = useUser();
 
   useEffect(() => {
     setMounted(true);
@@ -60,28 +63,49 @@ function AppSidebar() {
               )}
             </div>
           </div>
+          {user  ?
           <Button className="w-full mt-5">
             <MessageSquare /> New Chat
+          </Button> :
+          <SignInButton>
+            <Button className="w-full mt-5">
+            <MessageSquare /> New Chat
           </Button>
+            </SignInButton>}
         </div>
       </SidebarHeader>
 
       <SidebarContent>
         <SidebarGroup>
           <div className="p-3">
-            <h2 className="font-bold text-lg">Chat</h2>
-            <p className="text-sm mt-2 text-muted-foreground">
+            <h2 className="font-bold text-lg flex justify-items-start gap-2"> <Logs/>Chats</h2>
+            {!user  &&<p className="text-sm mt-2 text-muted-foreground">
               Start a new conversation by clicking the "New Chat" button above.
-            </p>
+            </p>}
           </div>
         </SidebarGroup>
       </SidebarContent>
 
       <SidebarFooter>
         <div className="p-3 mb-10">
+         {!user ? <SignInButton mode="modal">
           <Button className="w-full" size="lg">
             SignIn / SignUp
           </Button>
+          </SignInButton> :
+          <div>
+            <UsageCreditProgress/>
+            <Button className={'w-full mb-3'}>
+              <Zap/> Upgrade to Pro
+            </Button>
+            <Button className="flex w-full" variant={'ghost'}>
+            <UserButton/>
+            <h2>
+               Profile Settings
+            </h2>
+            </Button>
+            </div>
+            }
         </div>
       </SidebarFooter>
     </Sidebar>
