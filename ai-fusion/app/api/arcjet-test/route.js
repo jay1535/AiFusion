@@ -1,11 +1,11 @@
 import { aj } from "@/config/Arcjet";
 import { NextResponse } from "next/server";
-import { isSpoofedBot } from "@arcjet/next";
+
 
 export async function GET(request) {
   // Protect this endpoint using Arcjet (rate limit + bot detection)
   const userId = "user123";
-  const decision = await aj.protect(request, { userId, requested: 5 }); // consume 5 tokens
+  const decision = await aj.protect(request, { userId, requested: 5 }); 
   console.log("Arcjet decision:", decision);
 
   // Handle denials (rate limit or bot)
@@ -27,10 +27,5 @@ export async function GET(request) {
       );
     }
   }
-
-  // Block hosting IPs (like proxies or cloud VMs)
- 
-
-  // ✅ Passed all checks
   return NextResponse.json({ message: "Hello world" });
 }
