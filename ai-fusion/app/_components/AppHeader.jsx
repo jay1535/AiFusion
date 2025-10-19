@@ -6,19 +6,19 @@ import { UserButton, useUser } from "@clerk/clerk-react";
 import Image from "next/image";
 
 function AppHeader() {
-  const { isSignedIn } = useUser();
-  const { open, setOpen } = useSidebar(); // get sidebar state + control
+  const { user } = useUser();
+  const { open, setOpen } = useSidebar(); // sidebar state + control
 
   return (
     <div className="p-3 w-full shadow-md flex justify-between items-center bg-background">
+      {/* Left side: Logo or SidebarTrigger */}
       <div className="flex items-center gap-3">
-        {/* Automatically switch based on sidebar state */}
         {open ? (
           <SidebarTrigger />
         ) : (
           <div
             className="flex items-center gap-2 select-none cursor-pointer"
-            onClick={() => setOpen(true)} // <-- opens sidebar on logo click
+            onClick={() => setOpen(true)} // open sidebar on logo click
           >
             <Image
               src="/logo.svg" // replace with your actual logo
@@ -27,16 +27,17 @@ function AppHeader() {
               height={36}
               className="rounded-md transition-transform hover:scale-105"
             />
+            <span className="font-bold text-lg">AiFusion</span>
           </div>
         )}
       </div>
 
-      {/* Right side - Clerk button */}
+      {/* Right side: Sign In / UserButton */}
       <div>
-        {!isSignedIn ? (
+        {!user ? (
           <Button variant="outline">Sign In</Button>
         ) : (
-          <UserButton afterSignOutUrl="/" />
+          <UserButton/>
         )}
       </div>
     </div>
