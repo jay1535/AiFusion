@@ -9,10 +9,12 @@ import { doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "@/config/FirebaseConfig";
 import { AiSelectedModelContext } from "@/context/AiSelectedModelContext";
 import { DefaultModel } from "@/shared/AiModelsShared";
+import { UserDetailContext } from "@/context/userDetailContext";
 
 function Provider({ children, ...props }) {
   const {user} = useUser();
   const [aiSelectedModels, setAiSelectedModels] = useState(DefaultModel);
+  const [userDetails, setUserDetails] = useState();
   useEffect(()=>{
     if(user){
       CreateNewUser();
@@ -33,6 +35,14 @@ function Provider({ children, ...props }) {
         createdAt: new Date(),
       };
       await setDoc(userRef, userData);
+      setUserDetails(userData);
+    }else{
+      const userInfo = userSnap.data();
+      if(userInfo.selectedModelPref){
+        setAiSelectedModels(userInfo.selectedModelPref);
+      }
+      setUserDetails(userInfo);
+      return;
     }
 
 
@@ -45,6 +55,7 @@ function Provider({ children, ...props }) {
       disableTransitionOnChange
       {...props}
     >
+      <UserDetailContext.Provider value={{userDetails, setUserDetails}}>
       <AiSelectedModelContext.Provider value={{aiSelectedModels, setAiSelectedModels}}>
       <SidebarProvider>
         <AppSidebar/>
@@ -54,6 +65,7 @@ function Provider({ children, ...props }) {
         <AppHeader/>{children}</div>
       </SidebarProvider>
       </AiSelectedModelContext.Provider>
+      </UserDetailContext.Provider>
     </NextThemesProvider>
   );
 }
