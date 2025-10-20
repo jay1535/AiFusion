@@ -20,11 +20,11 @@ import { doc, updateDoc } from "firebase/firestore";
 import { db } from "@/config/FirebaseConfig";
 
 function AiMultiModel() {
-  const { aiSelectedModels, setAiSelectedModels } = useContext(AiSelectedModelContext);
+  const { aiSelectedModels, setAiSelectedModels, messages, setMessages } =
+    useContext(AiSelectedModelContext);
   const [aiModelList, setAiModelList] = useState(AiModelList);
   const { user } = useUser();
 
-  // ✅ Toggle Model On/Off
   const onToggleChange = (model, value) => {
     setAiModelList((prevList) =>
       prevList.map((item) =>
@@ -33,22 +33,61 @@ function AiMultiModel() {
     );
   };
 
-  // ✅ Handle selection + Firebase update safely
   const onSelectValue = async (model, value) => {
     const updated = {
       ...aiSelectedModels,
-      [model]: { modelId: value },
+      [model]: { modelId: value || "" },
     };
+
     setAiSelectedModels(updated);
 
     try {
-      const docRef = doc(db, "users", user?.primaryEmailAddress?.emailAddress);
-      await updateDoc(docRef, {
-        selectedModelPref: updated,
-      });
+      if (!user) return;
+      const docRef = doc(db, "users", user.id);
+      await updateDoc(docRef, { selectedModelPref: updated });
     } catch (error) {
       console.error("Error updating Firebase:", error);
     }
+  };
+
+  const formatMessageContent = (content) => {
+    // Remove unwanted special characters
+    const cleanContent = content.replace(/[^\w\s.,!?'"():%-]/g, "");
+    // Split into lines for formatting
+    const lines = cleanContent.split("\n");
+
+    return lines.map((line, idx) => {
+      line = line.trim();
+      if (!line) return null;
+
+      // Bullet point
+      if (line.startsWith("- ")) {
+        return (
+          <li key={idx} className="ml-4 list-disc text-sm leading-relaxed">
+            {line.substring(2)}
+          </li>
+        );
+      }
+
+      // Subheading
+      if (line.endsWith(":")) {
+        return (
+          <h3
+            key={idx}
+            className="text-[15px] font-semibold text-gray-100 mt-2 mb-1"
+          >
+            {line}
+          </h3>
+        );
+      }
+
+      // Normal paragraph
+      return (
+        <p key={idx} className="text-[14px] text-gray-200 leading-relaxed">
+          {line}
+        </p>
+      );
+    });
   };
 
   return (
@@ -77,7 +116,6 @@ function AiMultiModel() {
                   className="rounded-md"
                 />
 
-                {/* Show select only if enabled */}
                 {model.enable && (
                   <Select
                     defaultValue={aiSelectedModels?.[model.model]?.modelId || ""}
@@ -87,14 +125,17 @@ function AiMultiModel() {
                     <SelectTrigger className="w-[180px]">
                       <SelectValue
                         placeholder={
-                          aiSelectedModels?.[model.model]?.modelId || "Select Model"
+                          aiSelectedModels?.[model.model]?.modelId ||
+                          "Select Model"
                         }
                       />
                     </SelectTrigger>
+
                     <SelectContent>
-                      {/* FREE SECTION */}
                       <SelectGroup className="px-3">
-                        <SelectLabel className="text-sm text-gray-400">Free</SelectLabel>
+                        <SelectLabel className="text-sm text-gray-400">
+                          Free
+                        </SelectLabel>
                         {hasFreeModels ? (
                           model.subModel.map(
                             (subModel, i) =>
@@ -112,7 +153,6 @@ function AiMultiModel() {
                         )}
                       </SelectGroup>
 
-                      {/* PREMIUM SECTION */}
                       {hasPremiumModels && (
                         <SelectGroup className="px-3">
                           <SelectLabel className="text-sm text-gray-400">
@@ -121,12 +161,8 @@ function AiMultiModel() {
                           {model.subModel.map(
                             (subModel, i) =>
                               subModel.premium && (
-                                <SelectItem
-                                  key={i}
-                                  value={subModel.id}
-                                  disabled={subModel.premium}
-                                >
-                                  {subModel.name}{" "}
+                                <SelectItem key={i} value={subModel.id} disabled>
+                                  {subModel.name}
                                   <Lock className="inline-block ml-2 w-4 h-4" />
                                 </SelectItem>
                               )
@@ -138,7 +174,6 @@ function AiMultiModel() {
                 )}
               </div>
 
-              {/* Toggle or Chat Icon */}
               {model.enable ? (
                 <Switch
                   checked={model.enable}
@@ -152,12 +187,55 @@ function AiMultiModel() {
               )}
             </div>
 
-            {/* Premium Lock Notice */}
             {model.premium && model.enable && (
               <div className="flex items-center justify-center h-full">
                 <Button>
                   <Lock className="mr-2 w-4 h-4" /> Upgrade To Unlock
                 </Button>
+              </div>
+            )}
+
+            {/* Messages Section */}
+            {model.enable && (
+              <div className="flex-1 p-4 space-y-4 overflow-y-auto">
+                {(messages[model.model] || []).map((m, i) => (
+                  <div
+                    key={i}
+                    className={`flex w-full ${
+                      m.role === "user" ? "justify-end" : "justify-start"
+                    }`}
+                  >
+                   <div
+  className={`rounded-2xl px-4 py-3 max-w-[75%] shadow-sm ${
+    m.role === "user"
+      ? "bg-gray-800 text-white self-end font-[cursive]"
+      : "bg-gray-950 text-gray-200 border border-gray-800 "
+  }`}
+>
+                      {m.role === "assistant" && (
+                        <div className="flex items-center gap-2 mb-1">
+                          <Image
+                            src={model.icon}
+                            alt="model-logo"
+                            width={18}
+                            height={18}
+                            className="rounded-sm opacity-80"
+                          />
+                          <span className="text-xs text-gray-400 font-medium">
+                            {m.model ?? model.model}
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Formatted AI message */}
+                      <div className="whitespace-pre-line ">
+                        {m.role === "assistant"
+                          ? formatMessageContent(m.content)
+                          : m.content}
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
