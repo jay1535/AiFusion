@@ -40,7 +40,7 @@ function Provider({ children, ...props }) {
     }else{
       const userInfo = userSnap.data();
       if(userInfo.selectedModelPref){
-        setAiSelectedModels(userInfo.selectedModelPref);
+        setAiSelectedModels(userInfo.selectedModelPref??DefaultModel);
       }
       setUserDetails(userInfo);
       return;
