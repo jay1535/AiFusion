@@ -20,10 +20,11 @@ import { doc, updateDoc } from "firebase/firestore";
 import { db } from "@/config/FirebaseConfig";
 
 function AiMultiModel() {
-  const {aiSelectedModels, setAiSelectedModels} = useContext(AiSelectedModelContext);
+  const { aiSelectedModels, setAiSelectedModels } = useContext(AiSelectedModelContext);
   const [aiModelList, setAiModelList] = useState(AiModelList);
-  const {user} = useUser();
+  const { user } = useUser();
 
+  // ✅ Toggle Model On/Off
   const onToggleChange = (model, value) => {
     setAiModelList((prevList) =>
       prevList.map((item) =>
@@ -32,18 +33,24 @@ function AiMultiModel() {
     );
   };
 
-  const onSelectValue = async(model, value) => {
-    setAiSelectedModels((prevSelected) => ({
-      ...prevSelected,
+  // ✅ Handle selection + Firebase update safely
+  const onSelectValue = async (model, value) => {
+    const updated = {
+      ...aiSelectedModels,
       [model]: { modelId: value },
-    }));
-    //Update to FireBase
-    const docRef =doc (db, "users", user?.primaryEmailAddress?.emailAddress);
-    await updateDoc(docRef, {
-      selectedModelPref : aiSelectedModels
+    };
+    setAiSelectedModels(updated);
+
+    try {
+      const docRef = doc(db, "users", user?.primaryEmailAddress?.emailAddress);
+      await updateDoc(docRef, {
+        selectedModelPref: updated,
+      });
+    } catch (error) {
+      console.error("Error updating Firebase:", error);
     }
-    )
-  }
+  };
+
   return (
     <div className="flex flex-row overflow-x-auto no-scrollbar gap-4 mt-2 h-[70vh] p-4">
       {aiModelList.map((model, index) => {
@@ -56,9 +63,7 @@ function AiMultiModel() {
             className={`flex flex-col border rounded-2xl shadow-md bg-card/20 
               hover:bg-card/30 transition-all duration-200
               h-full p-4 ${
-                model.enable
-                  ? "min-w-[400px] max-w-[420px]"
-                  : "min-w-[160px]"
+                model.enable ? "min-w-[400px] max-w-[420px]" : "min-w-[160px]"
               }`}
           >
             {/* Header */}
@@ -74,20 +79,22 @@ function AiMultiModel() {
 
                 {/* Show select only if enabled */}
                 {model.enable && (
-                  <Select defaultValue={aiSelectedModels[model.model].modelId} onValueChange={(value)=>{
-                    onSelectValue(model.model, value)
-                    
-                  }}
-                  disabled={model.premium}>
+                  <Select
+                    defaultValue={aiSelectedModels?.[model.model]?.modelId || ""}
+                    onValueChange={(value) => onSelectValue(model.model, value)}
+                    disabled={model.premium}
+                  >
                     <SelectTrigger className="w-[180px]">
-                      <SelectValue placeholder={aiSelectedModels[model.model].modelId} />
+                      <SelectValue
+                        placeholder={
+                          aiSelectedModels?.[model.model]?.modelId || "Select Model"
+                        }
+                      />
                     </SelectTrigger>
                     <SelectContent>
                       {/* FREE SECTION */}
                       <SelectGroup className="px-3">
-                        <SelectLabel className="text-sm text-gray-400">
-                          Free
-                        </SelectLabel>
+                        <SelectLabel className="text-sm text-gray-400">Free</SelectLabel>
                         {hasFreeModels ? (
                           model.subModel.map(
                             (subModel, i) =>
@@ -105,7 +112,7 @@ function AiMultiModel() {
                         )}
                       </SelectGroup>
 
-                      {/* PREMIUM SECTION — show only if it exists */}
+                      {/* PREMIUM SECTION */}
                       {hasPremiumModels && (
                         <SelectGroup className="px-3">
                           <SelectLabel className="text-sm text-gray-400">
@@ -131,6 +138,7 @@ function AiMultiModel() {
                 )}
               </div>
 
+              {/* Toggle or Chat Icon */}
               {model.enable ? (
                 <Switch
                   checked={model.enable}

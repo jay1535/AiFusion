@@ -15,6 +15,7 @@ function Provider({ children, ...props }) {
   const {user} = useUser();
   const [aiSelectedModels, setAiSelectedModels] = useState(DefaultModel);
   const [userDetails, setUserDetails] = useState();
+  const [messages, setMessages] = useState({});
   useEffect(()=>{
     if(user){
       CreateNewUser();
@@ -56,7 +57,7 @@ function Provider({ children, ...props }) {
       {...props}
     >
       <UserDetailContext.Provider value={{userDetails, setUserDetails}}>
-      <AiSelectedModelContext.Provider value={{aiSelectedModels, setAiSelectedModels}}>
+      <AiSelectedModelContext.Provider value={{aiSelectedModels, setAiSelectedModels, messages, setMessages}}>
       <SidebarProvider>
         <AppSidebar/>
         
