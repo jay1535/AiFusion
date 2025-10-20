@@ -83,7 +83,7 @@ function AiMultiModel() {
 
       // Normal paragraph
       return (
-        <p key={idx} className="text-[14px] text-gray-200 leading-relaxed">
+        <p key={idx} className="text-[14px] text-gray-800 dark:text-gray-200 leading-relaxed">
           {line}
         </p>
       );
@@ -101,9 +101,7 @@ function AiMultiModel() {
             key={index}
             className={`flex flex-col border rounded-2xl shadow-md bg-card/20 
               hover:bg-card/30 transition-all duration-200
-              h-full p-4 ${
-                model.enable ? "min-w-[400px] max-w-[420px]" : "min-w-[160px]"
-              }`}
+              h-full p-4 ${model.enable ? "min-w-[400px] max-w-[420px]" : "min-w-[160px]"}`}
           >
             {/* Header */}
             <div className="flex w-full items-center justify-between mb-4">
@@ -125,8 +123,7 @@ function AiMultiModel() {
                     <SelectTrigger className="w-[180px]">
                       <SelectValue
                         placeholder={
-                          aiSelectedModels?.[model.model]?.modelId ||
-                          "Select Model"
+                          aiSelectedModels?.[model.model]?.modelId || "Select Model"
                         }
                       />
                     </SelectTrigger>
@@ -205,13 +202,13 @@ function AiMultiModel() {
                       m.role === "user" ? "justify-end" : "justify-start"
                     }`}
                   >
-                   <div
-  className={`rounded-2xl px-4 py-3 max-w-[75%] shadow-sm ${
-    m.role === "user"
-      ? "bg-gray-800 text-white self-end font-[cursive]"
-      : "bg-gray-950 text-gray-200 border border-gray-800 "
-  }`}
->
+                    <div
+                      className={`rounded-2xl px-4 py-3 max-w-[75%] shadow-sm ${
+                        m.role === "user"
+                          ? "self-end font-[cursive] bg-blue-100 text-blue-900 dark:bg-gray-800 dark:text-white"
+                          : "bg-gray-100 text-blue-900 border border-gray-300 dark:bg-gray-950 dark:text-gray-200 dark:border-gray-800"
+                      }`}
+                    >
                       {m.role === "assistant" && (
                         <div className="flex items-center gap-2 mb-1">
                           <Image

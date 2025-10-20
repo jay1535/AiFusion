@@ -92,7 +92,8 @@ function ChatInputBox() {
                 handleSend();
               }
             }}
-            className="w-full border-0 outline-none bg-transparent text-sm placeholder-gray-500"
+            onPaste={(e) => e.stopPropagation()} // ensure paste works
+            className="w-full border-0 outline-none bg-transparent text-sm placeholder-gray-500 select-text"
           />
           <div className="mt-3 flex justify-between items-center">
             <Button variant="ghost" size="icon">
