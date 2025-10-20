@@ -11,8 +11,9 @@ import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "next-themes";
 import { Bolt, Logs, MessageSquare, Moon, Sun, User2Icon, Zap } from "lucide-react";
-import { SignIn, SignInButton, UserButton, useUser } from "@clerk/nextjs";
+import {  SignInButton, UserButton, useUser } from "@clerk/nextjs";
 import UsageCreditProgress from "./UsageCreditProgress";
+
 
 function AppSidebar() {
   const { theme, setTheme } = useTheme();
@@ -67,11 +68,11 @@ function AppSidebar() {
           <Button className="w-full mt-5">
             <MessageSquare /> New Chat
           </Button> :
-          <SignInButton>
+         <SignInButton>
             <Button className="w-full mt-5">
             <MessageSquare /> New Chat
           </Button>
-            </SignInButton>}
+           </SignInButton>}
         </div>
       </SidebarHeader>
 
