@@ -17,7 +17,15 @@ function ChatInputBox() {
 
   const { aiSelectedModels, messages, setMessages } = useContext(AiSelectedModelContext);
 
+  // ✅ Check if at least one model is enabled
+  const isAnyModelEnabled = Object.values(aiSelectedModels).some((m) => m.enable);
+
   const handleSend = async (type = "text") => {
+    if (!isAnyModelEnabled) {
+      console.warn("⚠️ No model enabled. Please enable at least one AI model before sending.");
+      return;
+    }
+
     if (type === "text" && (!userInput || !userInput.trim())) return;
 
     // Add user message
@@ -31,15 +39,19 @@ function ChatInputBox() {
     setMessages((prev) => {
       const updated = { ...prev };
       Object.keys(aiSelectedModels).forEach((key) => {
-        updated[key] = [...(updated[key] ?? []), userMessage];
+        if (aiSelectedModels[key].enable) {
+          updated[key] = [...(updated[key] ?? []), userMessage];
+        }
       });
       return updated;
     });
 
     const formData = new FormData();
     formData.append("parentModel", "");
+
     Object.entries(aiSelectedModels).forEach(([parentModel, modelInfo]) => {
-      if (!modelInfo.modelId) return;
+      if (!modelInfo.enable || !modelInfo.modelId) return;
+
       formData.set("model", modelInfo.modelId);
       formData.set("parentModel", parentModel);
 
@@ -57,7 +69,7 @@ function ChatInputBox() {
     setAudioBlob(null);
 
     Object.entries(aiSelectedModels).forEach(async ([parentModel, modelInfo]) => {
-      if (!modelInfo.modelId) return;
+      if (!modelInfo.enable || !modelInfo.modelId) return;
 
       // show loading message
       setMessages((prev) => ({
@@ -80,7 +92,8 @@ function ChatInputBox() {
         setMessages((prev) => {
           const updated = [...(prev[parentModel] ?? [])];
           const idx = updated.findIndex((m) => m.loading);
-          if (idx !== -1) updated[idx] = { role: "assistant", content: aiResponse, model: parentModel, loading: false };
+          if (idx !== -1)
+            updated[idx] = { role: "assistant", content: aiResponse, model: parentModel, loading: false };
           return { ...prev, [parentModel]: updated };
         });
       } catch (err) {
@@ -98,6 +111,11 @@ function ChatInputBox() {
 
   // 🎤 Start / Stop Recording
   const handleAudioRecording = async () => {
+    if (!isAnyModelEnabled) {
+      console.warn("⚠️ No model enabled. Please enable one before recording.");
+      return;
+    }
+
     if (isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
@@ -136,11 +154,16 @@ function ChatInputBox() {
         <div className="w-full border rounded-xl shadow-md max-w-2xl p-4 bg-background">
           <input
             type="text"
-            placeholder="Ask me anything..."
+            placeholder={
+              isAnyModelEnabled
+                ? "Ask me anything..."
+                : "Enable at least one AI model to start chatting..."
+            }
             value={userInput}
             onChange={(e) => setUserInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSend("text")}
             className="w-full border-0 outline-none bg-transparent text-sm placeholder-gray-500"
+            disabled={!isAnyModelEnabled}
           />
 
           <div className="mt-3 flex justify-between items-center">
@@ -148,10 +171,12 @@ function ChatInputBox() {
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => fileInputRef.current.click()}
+              onClick={() => isAnyModelEnabled && fileInputRef.current.click()}
+              disabled={!isAnyModelEnabled}
             >
               <Paperclip className="h-5 w-5" />
             </Button>
+
             <input
               type="file"
               hidden
@@ -167,7 +192,12 @@ function ChatInputBox() {
 
             {/* 🎤 Mic & Send */}
             <div className="flex gap-4">
-              <Button variant="ghost" size="icon" onClick={handleAudioRecording}>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleAudioRecording}
+                disabled={!isAnyModelEnabled}
+              >
                 {isRecording ? (
                   <StopCircle className="text-red-500 h-6 w-6" />
                 ) : (
@@ -178,7 +208,7 @@ function ChatInputBox() {
               <Button
                 size="icon"
                 onClick={() => handleSend("text")}
-                disabled={!userInput.trim()}
+                disabled={!userInput.trim() || !isAnyModelEnabled}
               >
                 <Send />
               </Button>

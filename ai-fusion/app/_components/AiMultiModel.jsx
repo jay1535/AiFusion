@@ -31,6 +31,11 @@ function AiMultiModel() {
         item.model === model ? { ...item, enable: value } : item
       )
     );
+    setAiSelectedModels((prevList)=>({
+     ...prevList,
+     [model]: {...(prevList?.[model]??{}),
+    enable : value}
+    }))
   };
 
   const onSelectValue = async (model, value) => {
