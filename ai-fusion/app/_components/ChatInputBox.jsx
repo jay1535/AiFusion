@@ -8,6 +8,7 @@ import axios from "axios";
 import { v4 as uuidv4 } from "uuid";
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "@/config/FirebaseConfig";
+import { useUser } from "@clerk/clerk-react";
 
 function ChatInputBox() {
   const [userInput, setUserInput] = useState("");
@@ -18,6 +19,7 @@ function ChatInputBox() {
   const audioChunks = useRef([]);
   const fileInputRef = useRef(null);
   const [chatId, setChatId] = useState(null);
+  const {user} = useUser();
 
   const { aiSelectedModels, messages, setMessages } = useContext(
     AiSelectedModelContext
@@ -184,6 +186,7 @@ function ChatInputBox() {
     const docRef = doc(db, "chatHistory", chatId);
     await setDoc(docRef, {
       chatId: chatId,
+      userEmail : user?.primaryEmailAddress?.emailAddress,
       messages: messages,
     });
   };
