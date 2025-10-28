@@ -5,6 +5,9 @@ import React, { useContext, useEffect, useRef, useState } from "react";
 import AiMultiModel from "./AiMultiModel";
 import { AiSelectedModelContext } from "@/context/AiSelectedModelContext";
 import axios from "axios";
+import { v4 as uuidv4 } from "uuid";
+import { doc, setDoc } from "firebase/firestore";
+import { db } from "@/config/FirebaseConfig";
 
 function ChatInputBox() {
   const [userInput, setUserInput] = useState("");
@@ -14,15 +17,26 @@ function ChatInputBox() {
   const mediaRecorderRef = useRef(null);
   const audioChunks = useRef([]);
   const fileInputRef = useRef(null);
+  const [chatId, setChatId] = useState(null);
 
-  const { aiSelectedModels, messages, setMessages } = useContext(AiSelectedModelContext);
+  const { aiSelectedModels, messages, setMessages } = useContext(
+    AiSelectedModelContext
+  );
+
+  useEffect(() => {
+    setChatId(uuidv4());
+  }, []);
 
   // ✅ Check if at least one model is enabled
-  const isAnyModelEnabled = Object.values(aiSelectedModels).some((m) => m.enable);
+  const isAnyModelEnabled = Object.values(aiSelectedModels).some(
+    (m) => m.enable
+  );
 
   const handleSend = async (type = "text") => {
     if (!isAnyModelEnabled) {
-      console.warn("⚠️ No model enabled. Please enable at least one AI model before sending.");
+      console.warn(
+        "⚠️ No model enabled. Please enable at least one AI model before sending."
+      );
       return;
     }
 
@@ -60,7 +74,10 @@ function ChatInputBox() {
       } else if (type === "audio" && audioBlob) {
         formData.append("audio", audioBlob, "recording.wav");
       } else {
-        formData.append("msg", JSON.stringify([{ role: "user", content: userInput }]));
+        formData.append(
+          "msg",
+          JSON.stringify([{ role: "user", content: userInput }])
+        );
       }
     });
 
@@ -68,45 +85,58 @@ function ChatInputBox() {
     setSelectedFile(null);
     setAudioBlob(null);
 
-    Object.entries(aiSelectedModels).forEach(async ([parentModel, modelInfo]) => {
-      if (!modelInfo.enable || !modelInfo.modelId) return;
+    Object.entries(aiSelectedModels).forEach(
+      async ([parentModel, modelInfo]) => {
+        if (!modelInfo.enable || !modelInfo.modelId) return;
 
-      // show loading message
-      setMessages((prev) => ({
-        ...prev,
-        [parentModel]: [
-          ...(prev[parentModel] ?? []),
-          { role: "assistant", content: "Loading...", model: parentModel, loading: true },
-        ],
-      }));
-
-      try {
-        const result = await axios.post("/api/aiMultiModel", formData, {
-          headers: { "Content-Type": "multipart/form-data" },
-        });
-
-        const { data } = result.data;
-        const aiResponse = data?.aiResponse || data?.response || "✅ Got your message!";
-
-        // Replace loading with real response
-        setMessages((prev) => {
-          const updated = [...(prev[parentModel] ?? [])];
-          const idx = updated.findIndex((m) => m.loading);
-          if (idx !== -1)
-            updated[idx] = { role: "assistant", content: aiResponse, model: parentModel, loading: false };
-          return { ...prev, [parentModel]: updated };
-        });
-      } catch (err) {
-        console.error("Error:", err);
+        // show loading message
         setMessages((prev) => ({
           ...prev,
           [parentModel]: [
             ...(prev[parentModel] ?? []),
-            { role: "assistant", content: "⚠️ Error sending message." },
+            {
+              role: "assistant",
+              content: "Loading...",
+              model: parentModel,
+              loading: true,
+            },
           ],
         }));
+
+        try {
+          const result = await axios.post("/api/aiMultiModel", formData, {
+            headers: { "Content-Type": "multipart/form-data" },
+          });
+
+          const { data } = result.data;
+          const aiResponse =
+            data?.aiResponse || data?.response || "✅ Got your message!";
+
+          // Replace loading with real response
+          setMessages((prev) => {
+            const updated = [...(prev[parentModel] ?? [])];
+            const idx = updated.findIndex((m) => m.loading);
+            if (idx !== -1)
+              updated[idx] = {
+                role: "assistant",
+                content: aiResponse,
+                model: parentModel,
+                loading: false,
+              };
+            return { ...prev, [parentModel]: updated };
+          });
+        } catch (err) {
+          console.error("Error:", err);
+          setMessages((prev) => ({
+            ...prev,
+            [parentModel]: [
+              ...(prev[parentModel] ?? []),
+              { role: "assistant", content: "⚠️ Error sending message." },
+            ],
+          }));
+        }
       }
-    });
+    );
   };
 
   // 🎤 Start / Stop Recording
@@ -143,6 +173,20 @@ function ChatInputBox() {
   useEffect(() => {
     if (audioBlob) handleSend("audio");
   }, [audioBlob]);
+
+  useEffect(() => {
+    if (chatId) {
+      SaveMessages();
+    }
+  }, [messages]);
+
+  const SaveMessages = async () => {
+    const docRef = doc(db, "chatHistory", chatId);
+    await setDoc(docRef, {
+      chatId: chatId,
+      messages: messages,
+    });
+  };
 
   return (
     <div className="relative h-screen">
@@ -217,9 +261,7 @@ function ChatInputBox() {
 
           {/* Show selected file name */}
           {selectedFile && (
-            <p className="text-xs text-gray-500 mt-2">
-              📎 {selectedFile.name}
-            </p>
+            <p className="text-xs text-gray-500 mt-2">📎 {selectedFile.name}</p>
           )}
         </div>
       </div>
@@ -228,4 +270,3 @@ function ChatInputBox() {
 }
 
 export default ChatInputBox;
- 
