@@ -36,9 +36,8 @@ function Provider({ children, ...props }) {
 
       const docRef = doc(db, "users", email);
       await setDoc(docRef, { selectedModelPref: aiSelectedModels }, { merge: true });
-      console.log("✅ Model selection updated in DB");
     } catch (error) {
-      console.error("❌ Error updating model selection:", error);
+      console.error("Error updating model selection:", error);
     }
   };
 
@@ -61,17 +60,15 @@ function Provider({ children, ...props }) {
         };
         await setDoc(userRef, userData);
         setUserDetails(userData);
-        console.log("✅ New user created:", userData);
       } else {
         const userInfo = userSnap.data();
         if (userInfo.selectedModelPref) {
           setAiSelectedModels(userInfo.selectedModelPref ?? DefaultModel);
         }
         setUserDetails(userInfo);
-        console.log("✅ Existing user loaded:", userInfo);
       }
     } catch (error) {
-      console.error("❌ Error creating user:", error);
+      console.error("Error creating user:", error);
     }
   };
 
