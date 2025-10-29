@@ -13,6 +13,8 @@ import { useTheme } from "next-themes";
 import { Bolt, Logs, MessageSquare, Moon, Sun, User2Icon, Zap } from "lucide-react";
 import {  SignInButton, UserButton, useUser } from "@clerk/nextjs";
 import UsageCreditProgress from "./UsageCreditProgress";
+import { collection, getDocs, query, where } from "firebase/firestore";
+import { db } from "@/config/FirebaseConfig";
 
 
 function AppSidebar() {
@@ -23,6 +25,17 @@ function AppSidebar() {
   useEffect(() => {
     setMounted(true);
   }, []);
+  useEffect(()=>{
+    user && getChatHistory();
+  },[user])
+
+   const getChatHistory= async() =>{
+    const q = query(collection(db,"chatHistory"),where("userEmail","==",user?.primaryEmailAddress?.emailAddress));
+    const querySnapShot = await getDocs(q);
+    querySnapShot.forEach((doc)=>{
+      console.log(doc.id, " => ", doc.data());
+    });
+   }
 
   // Prevent SSR hydration mismatch
   if (!mounted) {
