@@ -22,8 +22,16 @@ import { db } from "@/config/FirebaseConfig";
 function AiMultiModel() {
   const { aiSelectedModels, setAiSelectedModels, messages, setMessages } =
     useContext(AiSelectedModelContext);
-  const [aiModelList, setAiModelList] = useState(AiModelList);
+
   const { user } = useUser();
+
+  // 👇 Ensure all models are disabled by default
+  const [aiModelList, setAiModelList] = useState(
+    AiModelList.map((model) => ({
+      ...model,
+      enable: false, // 🔒 force disable all models initially
+    }))
+  );
 
   const onToggleChange = (model, value) => {
     setAiModelList((prevList) =>
@@ -31,11 +39,13 @@ function AiMultiModel() {
         item.model === model ? { ...item, enable: value } : item
       )
     );
-    setAiSelectedModels((prevList)=>({
-     ...prevList,
-     [model]: {...(prevList?.[model]??{}),
-    enable : value}
-    }))
+    setAiSelectedModels((prevList) => ({
+      ...prevList,
+      [model]: {
+        ...(prevList?.[model] ?? {}),
+        enable: value,
+      },
+    }));
   };
 
   const onSelectValue = async (model, value) => {
@@ -56,16 +66,13 @@ function AiMultiModel() {
   };
 
   const formatMessageContent = (content) => {
-    // Remove unwanted special characters
     const cleanContent = content.replace(/[^\w\s.,!?'"():%-]/g, "");
-    // Split into lines for formatting
     const lines = cleanContent.split("\n");
 
     return lines.map((line, idx) => {
       line = line.trim();
       if (!line) return null;
 
-      // Bullet point
       if (line.startsWith("- ")) {
         return (
           <li key={idx} className="ml-4 list-disc text-sm leading-relaxed">
@@ -74,7 +81,6 @@ function AiMultiModel() {
         );
       }
 
-      // Subheading
       if (line.endsWith(":")) {
         return (
           <h3
@@ -86,9 +92,11 @@ function AiMultiModel() {
         );
       }
 
-      // Normal paragraph
       return (
-        <p key={idx} className="text-[14px] text-gray-800 dark:text-gray-200 leading-relaxed">
+        <p
+          key={idx}
+          className="text-[14px] text-gray-800 dark:text-gray-200 leading-relaxed"
+        >
           {line}
         </p>
       );
@@ -106,7 +114,11 @@ function AiMultiModel() {
             key={index}
             className={`flex flex-col border rounded-2xl shadow-md bg-card/20 
               hover:bg-card/30 transition-all duration-200
-              h-full p-4 ${model.enable ? "min-w-[400px] max-w-[420px]" : "min-w-[160px]"}`}
+              h-full p-4 ${
+                model.enable
+                  ? "min-w-[400px] max-w-[420px]"
+                  : "min-w-[160px]"
+              }`}
           >
             {/* Header */}
             <div className="flex w-full items-center justify-between mb-4">
@@ -121,14 +133,19 @@ function AiMultiModel() {
 
                 {model.enable && (
                   <Select
-                    defaultValue={aiSelectedModels?.[model.model]?.modelId || ""}
-                    onValueChange={(value) => onSelectValue(model.model, value)}
+                    defaultValue={
+                      aiSelectedModels?.[model.model]?.modelId || ""
+                    }
+                    onValueChange={(value) =>
+                      onSelectValue(model.model, value)
+                    }
                     disabled={model.premium}
                   >
                     <SelectTrigger className="w-[180px]">
                       <SelectValue
                         placeholder={
-                          aiSelectedModels?.[model.model]?.modelId || "Select Model"
+                          aiSelectedModels?.[model.model]?.modelId ||
+                          "Select Model"
                         }
                       />
                     </SelectTrigger>
@@ -163,7 +180,11 @@ function AiMultiModel() {
                           {model.subModel.map(
                             (subModel, i) =>
                               subModel.premium && (
-                                <SelectItem key={i} value={subModel.id} disabled>
+                                <SelectItem
+                                  key={i}
+                                  value={subModel.id}
+                                  disabled
+                                >
                                   {subModel.name}
                                   <Lock className="inline-block ml-2 w-4 h-4" />
                                 </SelectItem>
@@ -230,7 +251,7 @@ function AiMultiModel() {
                       )}
 
                       {/* Formatted AI message */}
-                      <div className="whitespace-pre-line ">
+                      <div className="whitespace-pre-line">
                         {m.role === "assistant"
                           ? formatMessageContent(m.content)
                           : m.content}
