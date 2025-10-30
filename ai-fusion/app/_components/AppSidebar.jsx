@@ -20,6 +20,7 @@ import {
   setDoc,
   doc,
   onSnapshot,
+  serverTimestamp,
 } from "firebase/firestore";
 import { db } from "@/config/FirebaseConfig";
 import moment from "moment";
@@ -53,9 +54,11 @@ function AppSidebar() {
     return () => unsubscribe();
   }, [user]);
 
-  // ✅ Firestore-safe chat save (avoid undefined)
+  // ✅ Firestore-safe saveChatHistory function
   const saveChatHistory = async (chatId, messages, model) => {
     try {
+      if (!user) return;
+
       const userId = user?.id || "unknown_user";
       const userEmail =
         user?.primaryEmailAddress?.emailAddress || "unknown_email@example.com";
@@ -67,6 +70,7 @@ function AppSidebar() {
         userId,
         userEmail,
         lastUpdated: Date.now(),
+        timestamp: serverTimestamp(),
       };
 
       await setDoc(doc(db, "chatHistory", chatId), chatData);
@@ -75,6 +79,7 @@ function AppSidebar() {
     }
   };
 
+  // ✅ Utility to extract the latest message and timestamp
   const getLastUserMessageFromChat = (chat) => {
     const allMessages = Object.values(chat.messages || {}).flat();
     const userMessages = allMessages.filter((msg) => msg.role === "user");
@@ -141,14 +146,18 @@ function AppSidebar() {
 
             {!user && (
               <p className="text-sm mt-2 text-muted-foreground">
-                Sign in to view chat history.
+                Sign in to view your chat history.
               </p>
             )}
 
-            {chatHistory.length === 0 && user && (
-              <p className="text-sm mt-2 text-muted-foreground">
-                No chat history yet.
-              </p>
+            {user && chatHistory.length === 0 && (
+              <div className="mt-3 text-sm text-muted-foreground">
+                <p>No chat history found.</p>
+                <p>
+                  💡 Click <span className="font-semibold">“New Chat”</span> to
+                  start your first conversation!
+                </p>
+              </div>
             )}
 
             {chatHistory.map((chat, index) => {
@@ -166,8 +175,8 @@ function AppSidebar() {
                       height={20}
                       className="rounded-sm mt-1"
                     />
-                    {/* ✅ FULL MESSAGE — multi-line, not truncated */}
                     <div className="flex flex-col">
+                      {/* ✅ Full multi-line message */}
                       <span className="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap leading-snug">
                         {lastMsg.message}
                       </span>
