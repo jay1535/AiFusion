@@ -19,7 +19,7 @@ function ChatInputBox() {
   const audioChunks = useRef([]);
   const fileInputRef = useRef(null);
   const [chatId, setChatId] = useState(null);
-  const {user} = useUser();
+  const { user, isLoaded } = useUser();
 
   const { aiSelectedModels, messages, setMessages } = useContext(
     AiSelectedModelContext
@@ -34,17 +34,33 @@ function ChatInputBox() {
     (m) => m.enable
   );
 
+  // ✅ Save messages to Firestore (safe)
+  const SaveMessages = async (updatedMessages) => {
+    if (!chatId || !isLoaded) return;
+
+    try {
+      const docRef = doc(db, "chatHistory", chatId);
+      await setDoc(docRef, {
+        chatId,
+        userEmail: user?.primaryEmailAddress?.emailAddress || "unknown",
+        messages: updatedMessages,
+        lastUpdated: Date.now(),
+      });
+    } catch (err) {
+      console.error("🔥 Error saving messages:", err);
+    }
+  };
+
+  // ✅ Main Send Function
   const handleSend = async (type = "text") => {
     if (!isAnyModelEnabled) {
-      console.warn(
-        "⚠️ No model enabled. Please enable at least one AI model before sending."
-      );
+      console.warn("⚠️ No model enabled. Please enable at least one AI model before sending.");
       return;
     }
 
     if (type === "text" && (!userInput || !userInput.trim())) return;
 
-    // Add user message
+    // Create user message
     const userMessage =
       type === "text"
         ? { role: "user", content: userInput }
@@ -52,15 +68,17 @@ function ChatInputBox() {
         ? { role: "user", content: `📎 Sent a file: ${selectedFile?.name}` }
         : { role: "user", content: "🎤 Sent a voice note" };
 
-    setMessages((prev) => {
-      const updated = { ...prev };
-      Object.keys(aiSelectedModels).forEach((key) => {
-        if (aiSelectedModels[key].enable) {
-          updated[key] = [...(updated[key] ?? []), userMessage];
-        }
-      });
-      return updated;
+    // Update messages locally first
+    let updatedMessages = { ...messages };
+    Object.keys(aiSelectedModels).forEach((key) => {
+      if (aiSelectedModels[key].enable) {
+        updatedMessages[key] = [...(updatedMessages[key] ?? []), userMessage];
+      }
     });
+    setMessages(updatedMessages);
+
+    // ✅ Save immediately after user sends message
+    SaveMessages(updatedMessages);
 
     const formData = new FormData();
     formData.append("parentModel", "");
@@ -87,58 +105,62 @@ function ChatInputBox() {
     setSelectedFile(null);
     setAudioBlob(null);
 
-    Object.entries(aiSelectedModels).forEach(
-      async ([parentModel, modelInfo]) => {
-        if (!modelInfo.enable || !modelInfo.modelId) return;
+    Object.entries(aiSelectedModels).forEach(async ([parentModel, modelInfo]) => {
+      if (!modelInfo.enable || !modelInfo.modelId) return;
 
-        // show loading message
-        setMessages((prev) => ({
-          ...prev,
-          [parentModel]: [
-            ...(prev[parentModel] ?? []),
-            {
+      // Show loading
+      setMessages((prev) => ({
+        ...prev,
+        [parentModel]: [
+          ...(prev[parentModel] ?? []),
+          {
+            role: "assistant",
+            content: "Loading...",
+            model: parentModel,
+            loading: true,
+          },
+        ],
+      }));
+
+      try {
+        const result = await axios.post("/api/aiMultiModel", formData, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+
+        const { data } = result.data;
+        const aiResponse =
+          data?.aiResponse || data?.response || "✅ Got your message!";
+
+        // Replace loading message
+        setMessages((prev) => {
+          const updated = [...(prev[parentModel] ?? [])];
+          const idx = updated.findIndex((m) => m.loading);
+          if (idx !== -1)
+            updated[idx] = {
               role: "assistant",
-              content: "Loading...",
+              content: aiResponse,
               model: parentModel,
-              loading: true,
-            },
-          ],
-        }));
-
-        try {
-          const result = await axios.post("/api/aiMultiModel", formData, {
-            headers: { "Content-Type": "multipart/form-data" },
-          });
-
-          const { data } = result.data;
-          const aiResponse =
-            data?.aiResponse || data?.response || "✅ Got your message!";
-
-          // Replace loading with real response
-          setMessages((prev) => {
-            const updated = [...(prev[parentModel] ?? [])];
-            const idx = updated.findIndex((m) => m.loading);
-            if (idx !== -1)
-              updated[idx] = {
-                role: "assistant",
-                content: aiResponse,
-                model: parentModel,
-                loading: false,
-              };
-            return { ...prev, [parentModel]: updated };
-          });
-        } catch (err) {
-          console.error("Error:", err);
-          setMessages((prev) => ({
+              loading: false,
+            };
+          const allUpdated = { ...prev, [parentModel]: updated };
+          SaveMessages(allUpdated); // ✅ Save updated assistant response
+          return allUpdated;
+        });
+      } catch (err) {
+        console.error("Error:", err);
+        setMessages((prev) => {
+          const updated = {
             ...prev,
             [parentModel]: [
               ...(prev[parentModel] ?? []),
               { role: "assistant", content: "⚠️ Error sending message." },
             ],
-          }));
-        }
+          };
+          SaveMessages(updated);
+          return updated;
+        });
       }
-    );
+    });
   };
 
   // 🎤 Start / Stop Recording
@@ -176,21 +198,6 @@ function ChatInputBox() {
     if (audioBlob) handleSend("audio");
   }, [audioBlob]);
 
-  useEffect(() => {
-    if (chatId) {
-      SaveMessages();
-    }
-  }, [messages]);
-
-  const SaveMessages = async () => {
-    const docRef = doc(db, "chatHistory", chatId);
-    await setDoc(docRef, {
-      chatId: chatId,
-      userEmail : user?.primaryEmailAddress?.emailAddress,
-      messages: messages,
-    });
-  };
-
   return (
     <div className="relative h-screen">
       <div>
@@ -214,7 +221,6 @@ function ChatInputBox() {
           />
 
           <div className="mt-3 flex justify-between items-center">
-            {/* 📎 File Upload */}
             <Button
               variant="ghost"
               size="icon"
@@ -237,7 +243,6 @@ function ChatInputBox() {
               }}
             />
 
-            {/* 🎤 Mic & Send */}
             <div className="flex gap-4">
               <Button
                 variant="ghost"
@@ -262,7 +267,6 @@ function ChatInputBox() {
             </div>
           </div>
 
-          {/* Show selected file name */}
           {selectedFile && (
             <p className="text-xs text-gray-500 mt-2">📎 {selectedFile.name}</p>
           )}
