@@ -1,7 +1,7 @@
 "use client";
 import AiModelList from "@/shared/AiModelList";
 import Image from "next/image";
-import React, { useContext, useState } from "react";
+import React, { useContext, useEffect, useState } from "react";
 import {
   Select,
   SelectContent,
@@ -16,7 +16,7 @@ import { Lock, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AiSelectedModelContext } from "@/context/AiSelectedModelContext";
 import { useUser } from "@clerk/clerk-react";
-import { doc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, setDoc } from "firebase/firestore";
 import { db } from "@/config/FirebaseConfig";
 
 function AiMultiModel() {
@@ -24,27 +24,83 @@ function AiMultiModel() {
     useContext(AiSelectedModelContext);
 
   const { user } = useUser();
-
-  // 👇 Ensure all models are disabled by default
   const [aiModelList, setAiModelList] = useState(
     AiModelList.map((model) => ({
       ...model,
-      enable: false, // 🔒 force disable all models initially
+      enable: false,
     }))
   );
 
+  // ------------------------
+  // Load state on startup
+  // ------------------------
+  useEffect(() => {
+    const loadUserState = async () => {
+      // 1️⃣ Try localStorage first (fast)
+      const localData = localStorage.getItem("AiModelState");
+      if (localData) {
+        const parsed = JSON.parse(localData);
+        setAiModelList(parsed.modelList || aiModelList);
+        setMessages(parsed.messages || {});
+        setAiSelectedModels(parsed.aiSelectedModels || {});
+      }
+
+      // 2️⃣ Then sync with Firebase (latest data)
+      if (user) {
+        const userRef = doc(db, "users", user.id);
+        const snapshot = await getDoc(userRef);
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+          if (data.modelState) {
+            setAiModelList(data.modelState.modelList);
+            setMessages(data.modelState.messages || {});
+            setAiSelectedModels(data.modelState.aiSelectedModels || {});
+          }
+        }
+      }
+    };
+
+    loadUserState();
+  }, [user]);
+
+  // ------------------------
+  // Save state whenever it changes
+  // ------------------------
+  useEffect(() => {
+    if (!user) return;
+    const stateToSave = {
+      modelList: aiModelList,
+      messages,
+      aiSelectedModels,
+    };
+
+    // 1️⃣ LocalStorage (instant)
+    localStorage.setItem("AiModelState", JSON.stringify(stateToSave));
+
+    // 2️⃣ Firebase (persistent)
+    const saveToFirebase = async () => {
+      const userRef = doc(db, "users", user.id);
+      await setDoc(
+        userRef,
+        { modelState: stateToSave },
+        { merge: true }
+      );
+    };
+    saveToFirebase();
+  }, [aiModelList, messages, aiSelectedModels, user]);
+
+  // ------------------------
+  // Handlers
+  // ------------------------
   const onToggleChange = (model, value) => {
-    setAiModelList((prevList) =>
-      prevList.map((item) =>
+    setAiModelList((prev) =>
+      prev.map((item) =>
         item.model === model ? { ...item, enable: value } : item
       )
     );
-    setAiSelectedModels((prevList) => ({
-      ...prevList,
-      [model]: {
-        ...(prevList?.[model] ?? {}),
-        enable: value,
-      },
+    setAiSelectedModels((prev) => ({
+      ...prev,
+      [model]: { ...(prev?.[model] ?? {}), enable: value },
     }));
   };
 
@@ -53,16 +109,7 @@ function AiMultiModel() {
       ...aiSelectedModels,
       [model]: { modelId: value || "" },
     };
-
     setAiSelectedModels(updated);
-
-    try {
-      if (!user) return;
-      const docRef = doc(db, "users", user.id);
-      await updateDoc(docRef, { selectedModelPref: updated });
-    } catch (error) {
-      console.error("Error updating Firebase:", error);
-    }
   };
 
   const formatMessageContent = (content) => {
@@ -103,6 +150,9 @@ function AiMultiModel() {
     });
   };
 
+  // ------------------------
+  // Render
+  // ------------------------
   return (
     <div className="flex flex-row overflow-x-auto no-scrollbar gap-4 mt-2 h-[70vh] p-4">
       {aiModelList.map((model, index) => {
@@ -249,8 +299,6 @@ function AiMultiModel() {
                           </span>
                         </div>
                       )}
-
-                      {/* Formatted AI message */}
                       <div className="whitespace-pre-line">
                         {m.role === "assistant"
                           ? formatMessageContent(m.content)
