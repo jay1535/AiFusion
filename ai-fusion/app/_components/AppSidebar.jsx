@@ -20,10 +20,10 @@ import {
   setDoc,
   doc,
   onSnapshot,
-  serverTimestamp,
 } from "firebase/firestore";
 import { db } from "@/config/FirebaseConfig";
 import moment from "moment";
+import Link from "next/link";
 
 const STATIC_LOGO = "/logo.svg";
 
@@ -47,6 +47,7 @@ function AppSidebar() {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const chats = snapshot.docs
         .map((doc) => doc.data())
+        .filter((chat) => Object.keys(chat.messages || {}).length > 0)
         .sort((a, b) => (b.lastUpdated || 0) - (a.lastUpdated || 0));
       setChatHistory(chats);
     });
@@ -54,32 +55,6 @@ function AppSidebar() {
     return () => unsubscribe();
   }, [user]);
 
-  // ✅ Firestore-safe saveChatHistory function
-  const saveChatHistory = async (chatId, messages, model) => {
-    try {
-      if (!user) return;
-
-      const userId = user?.id || "unknown_user";
-      const userEmail =
-        user?.primaryEmailAddress?.emailAddress || "unknown_email@example.com";
-
-      const chatData = {
-        chatId,
-        messages,
-        model: model || "",
-        userId,
-        userEmail,
-        lastUpdated: Date.now(),
-        timestamp: serverTimestamp(),
-      };
-
-      await setDoc(doc(db, "chatHistory", chatId), chatData);
-    } catch (error) {
-      console.error("Error saving chat:", error);
-    }
-  };
-
-  // ✅ Utility to extract the latest message and timestamp
   const getLastUserMessageFromChat = (chat) => {
     const allMessages = Object.values(chat.messages || {}).flat();
     const userMessages = allMessages.filter((msg) => msg.role === "user");
@@ -102,33 +77,36 @@ function AppSidebar() {
       <SidebarHeader>
         <div className="p-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 group">
               <Image
                 src={STATIC_LOGO}
                 alt="Logo"
                 width={30}
                 height={30}
-                className="rounded-md"
+                className="rounded-md group-hover:rotate-6 transition-transform duration-200"
               />
-              <h2 className="font-bold text-xl">AiFusion</h2>
+              <h2 className="font-bold text-xl  transition-colors duration-200">
+                AiFusion
+              </h2>
             </div>
 
             <Button
               variant="outline"
               size="icon"
               onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+              className="transition-colors duration-200 hover:bg-accent"
             >
               {theme === "light" ? <Sun /> : <Moon />}
             </Button>
           </div>
 
           {user ? (
-            <Button className="w-full mt-5">
+            <Button className="w-full mt-5 transition-all duration-300">
               <MessageSquare /> New Chat
             </Button>
           ) : (
             <SignInButton>
-              <Button className="w-full mt-5">
+              <Button className="w-full mt-5 transition-all duration-300">
                 <MessageSquare /> New Chat
               </Button>
             </SignInButton>
@@ -141,54 +119,64 @@ function AppSidebar() {
         <SidebarGroup>
           <div className="p-3">
             <h2 className="font-bold text-lg flex items-center gap-2">
-              <Logs /> Chats
+              <Logs className="text-gray-500" /> Chats
             </h2>
 
             {!user && (
               <p className="text-sm mt-2 text-muted-foreground">
-                Sign in to view your chat history.
+                Sign in to view chat history.
               </p>
             )}
 
-            {user && chatHistory.length === 0 && (
-              <div className="mt-3 text-sm text-muted-foreground">
-                <p>No chat history found.</p>
-                <p>
-                  💡 Click <span className="font-semibold">“New Chat”</span> to
-                  start your first conversation!
-                </p>
-              </div>
+            {chatHistory.length === 0 && user && (
+              <p className="text-sm mt-2 text-muted-foreground">
+                No chat history yet.
+              </p>
             )}
 
-            {chatHistory.map((chat, index) => {
-              const lastMsg = getLastUserMessageFromChat(chat);
-              return (
-                <div
-                  key={index}
-                  className="p-3 mt-3 rounded-lg hover:bg-accent transition-all cursor-pointer"
-                >
-                  <div className="flex items-start gap-2">
-                    <Image
-                      src={STATIC_LOGO}
-                      alt="Logo"
-                      width={20}
-                      height={20}
-                      className="rounded-sm mt-1"
-                    />
-                    <div className="flex flex-col">
-                      {/* ✅ Full multi-line message */}
-                      <span className="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap leading-snug">
-                        {lastMsg.message}
-                      </span>
-                      {/* ✅ Time & Date below */}
-                      <span className="text-[11px] text-muted-foreground mt-1">
-                        {lastMsg.lastUpdated}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+            {/* Chat History Cards */}
+          
+<div className="mt-4 flex flex-col gap-3">
+  {chatHistory.map((chat, index) => {
+    const lastMsg = getLastUserMessageFromChat(chat);
+    return (
+      <Link
+        href={"?chatId=" + chat.chatId}
+        key={index}
+        className="
+          relative overflow-hidden
+          rounded-xl border border-gray-200 dark:border-gray-700
+          bg-gray-50 dark:bg-gray-800/40
+          shadow-sm
+          transition-all duration-300 ease-out
+          hover:shadow-md hover:-translate-y-[2px] hover:bg-gray-100 dark:hover:bg-gray-700/50
+        "
+      >
+        <div className="flex items-start gap-3 p-3">
+          <div className="flex-shrink-0 mt-1">
+            <Image
+              src={STATIC_LOGO}
+              alt="Logo"
+              width={24}
+              height={24}
+              className="rounded-md transition-transform duration-300"
+            />
+          </div>
+
+          <div className="flex flex-col flex-1 min-w-0">
+            <span className="text-sm text-gray-900 dark:text-gray-100 font-medium truncate transition-colors duration-200">
+              {lastMsg.message}
+            </span>
+            <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              {lastMsg.lastUpdated}
+            </span>
+          </div>
+        </div>
+      </Link>
+    );
+  })}
+</div>
+
           </div>
         </SidebarGroup>
       </SidebarContent>
@@ -205,10 +193,13 @@ function AppSidebar() {
           ) : (
             <div>
               <UsageCreditProgress />
-              <Button className="w-full mb-3">
+              <Button className="w-full mb-3  transition-all duration-300">
                 <Zap /> Upgrade to Pro
               </Button>
-              <Button className="flex w-full" variant="ghost">
+              <Button
+                className="flex w-full hover:bg-accent transition-colors duration-200"
+                variant="ghost"
+              >
                 <UserButton />
                 <h2>Profile Settings</h2>
               </Button>

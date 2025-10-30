@@ -6,9 +6,10 @@ import AiMultiModel from "./AiMultiModel";
 import { AiSelectedModelContext } from "@/context/AiSelectedModelContext";
 import axios from "axios";
 import { v4 as uuidv4 } from "uuid";
-import { doc, setDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "@/config/FirebaseConfig";
 import { useUser } from "@clerk/clerk-react";
+import { useSearchParams } from "next/navigation";
 
 function ChatInputBox() {
   const [userInput, setUserInput] = useState("");
@@ -20,14 +21,34 @@ function ChatInputBox() {
   const fileInputRef = useRef(null);
   const [chatId, setChatId] = useState(null);
   const { user, isLoaded } = useUser();
+  const params = useSearchParams();
 
   const { aiSelectedModels, messages, setMessages } = useContext(
     AiSelectedModelContext
   );
 
   useEffect(() => {
-    setChatId(uuidv4());
-  }, []);
+    const chatId_ = params.get("chatId");
+    if(chatId_){
+      setChatId(chatId_);
+      getMessages(chatId_);
+    }
+    else{
+setChatId(uuidv4());
+    }
+    
+  }, [params]);
+
+  const getMessages = async(chatId)=>{
+    
+ const docRef = doc(db, "chatHistory",chatId);
+ const docSnap = await getDoc(docRef);
+ console.log(docSnap.data());
+ const docData = docSnap.data();
+ setMessages(docData.messages);
+ 
+
+  }
 
   // ✅ Check if at least one model is enabled
   const isAnyModelEnabled = Object.values(aiSelectedModels).some(
