@@ -100,11 +100,12 @@ function AppSidebar() {
             </Button>
           </div>
 
-          {user ? (
+          {user ?
+          <Link href={'/'}> 
             <Button className="w-full mt-5 transition-all duration-300">
               <MessageSquare /> New Chat
             </Button>
-          ) : (
+           </Link>: (
             <SignInButton>
               <Button className="w-full mt-5 transition-all duration-300">
                 <MessageSquare /> New Chat
