@@ -34,6 +34,7 @@ function ChatInputBox() {
       getMessages(chatId_);
     }
     else{
+      setMessages([]);
 setChatId(uuidv4());
     }
     
