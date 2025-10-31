@@ -16,55 +16,99 @@ import { Lock, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AiSelectedModelContext } from "@/context/AiSelectedModelContext";
 import { useUser } from "@clerk/clerk-react";
-import { doc, getDoc, updateDoc, setDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "@/config/FirebaseConfig";
 
 function AiMultiModel() {
   const { aiSelectedModels, setAiSelectedModels, messages, setMessages } =
     useContext(AiSelectedModelContext);
-
   const { user } = useUser();
+
   const [aiModelList, setAiModelList] = useState(
-    AiModelList.map((model) => ({
-      ...model,
-      enable: false,
-    }))
+    AiModelList.map((model) => {
+      // enable free models by default with first free submodel
+      const firstFree = model.subModel.find((m) => !m.premium);
+      return {
+        ...model,
+        enable: !!firstFree, // enable if free model exists
+        defaultSubModel: firstFree ? firstFree.id : null,
+      };
+    })
   );
 
   // ------------------------
-  // Load state on startup
+  // 🆕 Always start a new chat on refresh
+  // ------------------------
+  useEffect(() => {
+    localStorage.removeItem("AiModelState");
+    setMessages({});
+    const defaultModels = AiModelList.map((model) => {
+      const firstFree = model.subModel.find((m) => !m.premium);
+      return {
+        ...model,
+        enable: !!firstFree,
+        defaultSubModel: firstFree ? firstFree.id : null,
+      };
+    });
+
+    setAiSelectedModels(
+      defaultModels.reduce((acc, model) => {
+        if (model.enable && model.defaultSubModel) {
+          acc[model.model] = {
+            modelId: model.defaultSubModel,
+            enable: true,
+          };
+        }
+        return acc;
+      }, {})
+    );
+
+    setAiModelList(defaultModels);
+  }, []);
+
+  // ------------------------
+  // Load Firebase data (optional)
   // ------------------------
   useEffect(() => {
     const loadUserState = async () => {
-      // 1️⃣ Try localStorage first (fast)
-      const localData = localStorage.getItem("AiModelState");
-      if (localData) {
-        const parsed = JSON.parse(localData);
-        setAiModelList(parsed.modelList || aiModelList);
-        setMessages(parsed.messages || {});
-        setAiSelectedModels(parsed.aiSelectedModels || {});
-      }
+      if (!user) return;
+      const userRef = doc(db, "users", user.id);
+      const snapshot = await getDoc(userRef);
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        if (data.modelState) {
+          const { modelList, aiSelectedModels } = data.modelState;
+          // re-apply only free models
+          const updatedList = modelList.map((m) => {
+            const firstFree = m.subModel.find((s) => !s.premium);
+            return {
+              ...m,
+              enable: !!firstFree,
+              defaultSubModel: firstFree ? firstFree.id : null,
+            };
+          });
 
-      // 2️⃣ Then sync with Firebase (latest data)
-      if (user) {
-        const userRef = doc(db, "users", user.id);
-        const snapshot = await getDoc(userRef);
-        if (snapshot.exists()) {
-          const data = snapshot.data();
-          if (data.modelState) {
-            setAiModelList(data.modelState.modelList);
-            setMessages(data.modelState.messages || {});
-            setAiSelectedModels(data.modelState.aiSelectedModels || {});
-          }
+          const updatedSelected = updatedList.reduce((acc, model) => {
+            if (model.enable && model.defaultSubModel) {
+              acc[model.model] = {
+                modelId: model.defaultSubModel,
+                enable: true,
+              };
+            }
+            return acc;
+          }, {});
+
+          setAiModelList(updatedList);
+          setAiSelectedModels(updatedSelected);
+          setMessages({});
         }
       }
     };
-
     loadUserState();
   }, [user]);
 
   // ------------------------
-  // Save state whenever it changes
+  // Save to Firebase
   // ------------------------
   useEffect(() => {
     if (!user) return;
@@ -73,18 +117,11 @@ function AiMultiModel() {
       messages,
       aiSelectedModels,
     };
-
-    // 1️⃣ LocalStorage (instant)
     localStorage.setItem("AiModelState", JSON.stringify(stateToSave));
 
-    // 2️⃣ Firebase (persistent)
     const saveToFirebase = async () => {
       const userRef = doc(db, "users", user.id);
-      await setDoc(
-        userRef,
-        { modelState: stateToSave },
-        { merge: true }
-      );
+      await setDoc(userRef, { modelState: stateToSave }, { merge: true });
     };
     saveToFirebase();
   }, [aiModelList, messages, aiSelectedModels, user]);
@@ -104,7 +141,7 @@ function AiMultiModel() {
     }));
   };
 
-  const onSelectValue = async (model, value) => {
+  const onSelectValue = (model, value) => {
     const updated = {
       ...aiSelectedModels,
       [model]: { modelId: value || "" },
@@ -115,11 +152,9 @@ function AiMultiModel() {
   const formatMessageContent = (content) => {
     const cleanContent = content.replace(/[^\w\s.,!?'"():%-]/g, "");
     const lines = cleanContent.split("\n");
-
     return lines.map((line, idx) => {
       line = line.trim();
       if (!line) return null;
-
       if (line.startsWith("- ")) {
         return (
           <li key={idx} className="ml-4 list-disc text-sm leading-relaxed">
@@ -127,7 +162,6 @@ function AiMultiModel() {
           </li>
         );
       }
-
       if (line.endsWith(":")) {
         return (
           <h3
@@ -138,7 +172,6 @@ function AiMultiModel() {
           </h3>
         );
       }
-
       return (
         <p
           key={idx}
@@ -170,7 +203,6 @@ function AiMultiModel() {
                   : "min-w-[160px]"
               }`}
           >
-            {/* Header */}
             <div className="flex w-full items-center justify-between mb-4">
               <div className="flex items-center gap-3">
                 <Image
@@ -183,18 +215,19 @@ function AiMultiModel() {
 
                 {model.enable && (
                   <Select
-                    defaultValue={
-                      aiSelectedModels?.[model.model]?.modelId || ""
+                    value={
+                      aiSelectedModels?.[model.model]?.modelId ||
+                      model.defaultSubModel ||
+                      ""
                     }
-                    onValueChange={(value) =>
-                      onSelectValue(model.model, value)
-                    }
+                    onValueChange={(value) => onSelectValue(model.model, value)}
                     disabled={model.premium}
                   >
                     <SelectTrigger className="w-[180px]">
                       <SelectValue
                         placeholder={
                           aiSelectedModels?.[model.model]?.modelId ||
+                          model.defaultSubModel ||
                           "Select Model"
                         }
                       />
@@ -268,7 +301,6 @@ function AiMultiModel() {
               </div>
             )}
 
-            {/* Messages Section */}
             {model.enable && (
               <div className="flex-1 p-4 space-y-4 overflow-y-auto">
                 {(messages[model.model] || []).map((m, i) => (
