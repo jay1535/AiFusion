@@ -35,16 +35,21 @@ function AppSidebar() {
   const [mounted, setMounted] = useState(false);
   const { user } = useUser();
   const [chatHistory, setChatHistory] = useState([]);
-
-  const [freeMessageCount, setFreeMessageCount] = useState(0);
+const [freeMessageCount, setFreeMessageCount] = useState(0);
 
 
   useEffect(() => setMounted(true), []);
 
-  const getRemainingTokenMsgs=async()=>{
-      const result = await axios.get("/api/user-remaining-msg")
-      setFreeMessageCount(result?.data?.remainingToken);
-    }
+ const getRemainingTokenMsgs = async () => {
+  try {
+    const result = await axios.post("/api/user-remaining-msg", { token: 0 });
+    setFreeMessageCount(result?.data?.remainingToken || 0);
+  } catch (err) {
+    console.error("Error fetching remaining tokens:", err);
+    setFreeMessageCount(0); // fallback
+  }
+};
+
 
      useEffect(() => {
       user && getRemainingTokenMsgs();

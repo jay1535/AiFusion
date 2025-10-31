@@ -81,6 +81,17 @@ setChatId(uuidv4());
     }
 
     if (type === "text" && (!userInput || !userInput.trim())) return;
+    
+      //Deduct and check Token Limit here before sending message
+      const result = await axios.post("/api/user-remaining-msg",{
+        token : 1
+      })
+      const remainingToken = result?.data?.remainingToken;
+
+      if(remainingToken<=0){
+        // Notify user about limit
+        return 
+      }
 
     // Create user message
     const userMessage =
@@ -129,6 +140,10 @@ setChatId(uuidv4());
 
     Object.entries(aiSelectedModels).forEach(async ([parentModel, modelInfo]) => {
       if (!modelInfo.enable || !modelInfo.modelId) return;
+
+
+        
+    
 
       // Show loading
       setMessages((prev) => ({
@@ -219,6 +234,9 @@ setChatId(uuidv4());
   useEffect(() => {
     if (audioBlob) handleSend("audio");
   }, [audioBlob]);
+
+  
+
 
   return (
     <div className="relative h-screen">

@@ -102,7 +102,7 @@ export default [
 
     premium: true,
 
-    enable: true,
+    enable: false,
 
     subModel: [
 
@@ -122,7 +122,7 @@ export default [
 
     premium: true,
 
-    enable: true,
+    enable: false,
 
     subModel: [
 
@@ -141,7 +141,7 @@ export default [
 
     premium: true,
 
-    enable: true,
+    enable: false,
 
     subModel: [
 
