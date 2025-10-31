@@ -24,8 +24,11 @@ import {
 import { db } from "@/config/FirebaseConfig";
 import moment from "moment";
 import Link from "next/link";
+import axios from "axios";
 
 const STATIC_LOGO = "/logo.svg";
+
+
 
 function AppSidebar() {
   const { theme, setTheme } = useTheme();
@@ -33,7 +36,19 @@ function AppSidebar() {
   const { user } = useUser();
   const [chatHistory, setChatHistory] = useState([]);
 
+  const [freeMessageCount, setFreeMessageCount] = useState(0);
+
+
   useEffect(() => setMounted(true), []);
+
+  const getRemainingTokenMsgs=async()=>{
+      const result = await axios.get("/api/user-remaining-msg")
+      setFreeMessageCount(result?.data?.remainingToken);
+    }
+
+     useEffect(() => {
+      user && getRemainingTokenMsgs();
+    },[user]);
 
   // ✅ Real-time listener for chat history
   useEffect(() => {
@@ -193,7 +208,7 @@ function AppSidebar() {
             </SignInButton>
           ) : (
             <div>
-              <UsageCreditProgress />
+              <UsageCreditProgress remainingToken={freeMessageCount} />
               <Button className="w-full mb-3  transition-all duration-300">
                 <Zap /> Upgrade to Pro
               </Button>

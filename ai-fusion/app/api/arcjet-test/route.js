@@ -6,7 +6,7 @@ export async function GET(request) {
   // Protect this endpoint using Arcjet (rate limit + bot detection)
   const userId = "user123";
   const decision = await aj.protect(request, { userId, requested: 5 }); 
-  console.log("Arcjet decision:", decision);
+  console.log("Arcjet decision:", decision.reason.remaining);
 
   // Handle denials (rate limit or bot)
   if (decision.isDenied()) {

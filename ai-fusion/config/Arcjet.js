@@ -6,8 +6,8 @@ export const aj = arcjet({
     tokenBucket({
       mode: "LIVE",             // LIVE or DRY_RUN
       characteristics: ["userId"],  // rate limit based on IP (use "userId" if authenticated)
-      refillRate: 5,            // add 5 tokens every 10 seconds
-      interval: 10,             // seconds
+      refillRate: 10,            // add 5 tokens every 10 seconds
+      interval: 8640,             // seconds
       capacity: 10,             // maximum 10 tokens in the bucket
     }),
   ],
