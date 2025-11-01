@@ -18,36 +18,41 @@ import { AiSelectedModelContext } from "@/context/AiSelectedModelContext";
 import { useUser } from "@clerk/clerk-react";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "@/config/FirebaseConfig";
+import { useAuth } from "@clerk/nextjs";
 
 function AiMultiModel() {
   const { aiSelectedModels, setAiSelectedModels, messages, setMessages } =
     useContext(AiSelectedModelContext);
   const { user } = useUser();
+  const { has } = useAuth(); // has === true if user is premium
 
   const [aiModelList, setAiModelList] = useState(
     AiModelList.map((model) => {
-      // enable free models by default with first free submodel
-      const firstFree = model.subModel.find((m) => !m.premium);
+      const firstAvailable = has
+        ? model.subModel[0] // premium user: take first submodel
+        : model.subModel.find((s) => !s.premium); // free user: first free
       return {
         ...model,
-        enable: !!firstFree, // enable if free model exists
-        defaultSubModel: firstFree ? firstFree.id : null,
+        enable: !!firstAvailable,
+        defaultSubModel: firstAvailable ? firstAvailable.id : null,
       };
     })
   );
 
   // ------------------------
-  // 🆕 Always start a new chat on refresh
+  // Always start a new chat on refresh
   // ------------------------
   useEffect(() => {
     localStorage.removeItem("AiModelState");
     setMessages({});
     const defaultModels = AiModelList.map((model) => {
-      const firstFree = model.subModel.find((m) => !m.premium);
+      const firstAvailable = has
+        ? model.subModel[0]
+        : model.subModel.find((s) => !s.premium);
       return {
         ...model,
-        enable: !!firstFree,
-        defaultSubModel: firstFree ? firstFree.id : null,
+        enable: !!firstAvailable,
+        defaultSubModel: firstAvailable ? firstAvailable.id : null,
       };
     });
 
@@ -64,10 +69,10 @@ function AiMultiModel() {
     );
 
     setAiModelList(defaultModels);
-  }, []);
+  }, [has]);
 
   // ------------------------
-  // Load Firebase data (optional)
+  // Load Firebase data
   // ------------------------
   useEffect(() => {
     const loadUserState = async () => {
@@ -77,14 +82,15 @@ function AiMultiModel() {
       if (snapshot.exists()) {
         const data = snapshot.data();
         if (data.modelState) {
-          const { modelList, aiSelectedModels } = data.modelState;
-          // re-apply only free models
+          const { modelList } = data.modelState;
           const updatedList = modelList.map((m) => {
-            const firstFree = m.subModel.find((s) => !s.premium);
+            const firstAvailable = has
+              ? m.subModel[0]
+              : m.subModel.find((s) => !s.premium);
             return {
               ...m,
-              enable: !!firstFree,
-              defaultSubModel: firstFree ? firstFree.id : null,
+              enable: !!firstAvailable,
+              defaultSubModel: firstAvailable ? firstAvailable.id : null,
             };
           });
 
@@ -105,7 +111,7 @@ function AiMultiModel() {
       }
     };
     loadUserState();
-  }, [user]);
+  }, [user, has]);
 
   // ------------------------
   // Save to Firebase
@@ -198,9 +204,7 @@ function AiMultiModel() {
             className={`flex flex-col border rounded-2xl shadow-md bg-card/20 
               hover:bg-card/30 transition-all duration-200
               h-full p-4 ${
-                model.enable
-                  ? "min-w-[400px] max-w-[420px]"
-                  : "min-w-[160px]"
+                model.enable ? "min-w-[400px] max-w-[420px]" : "min-w-[160px]"
               }`}
           >
             <div className="flex w-full items-center justify-between mb-4">
@@ -221,7 +225,6 @@ function AiMultiModel() {
                       ""
                     }
                     onValueChange={(value) => onSelectValue(model.model, value)}
-                    disabled={model.premium}
                   >
                     <SelectTrigger className="w-[180px]">
                       <SelectValue
@@ -234,45 +237,37 @@ function AiMultiModel() {
                     </SelectTrigger>
 
                     <SelectContent>
-                      <SelectGroup className="px-3">
-                        <SelectLabel className="text-sm text-gray-400">
-                          Free
-                        </SelectLabel>
-                        {hasFreeModels ? (
-                          model.subModel.map(
-                            (subModel, i) =>
-                              !subModel.premium && (
-                                <SelectItem key={i} value={subModel.id}>
-                                  {subModel.name}
-                                </SelectItem>
-                              )
-                          )
-                        ) : (
-                          <div className="text-sm text-muted-foreground flex items-center gap-2 px-2 py-1">
-                            <Lock className="w-4 h-4" />
-                            Upgrade for Premium
-                          </div>
-                        )}
-                      </SelectGroup>
+                      {hasFreeModels && (
+                        <SelectGroup className="px-3">
+                          <SelectLabel className="text-sm text-gray-400">
+                            Free
+                          </SelectLabel>
+                          {model.subModel
+                            .filter((s) => !s.premium)
+                            .map((sub, i) => (
+                              <SelectItem key={i} value={sub.id}>
+                                {sub.name}
+                              </SelectItem>
+                            ))}
+                        </SelectGroup>
+                      )}
 
                       {hasPremiumModels && (
                         <SelectGroup className="px-3">
                           <SelectLabel className="text-sm text-gray-400">
                             Premium
                           </SelectLabel>
-                          {model.subModel.map(
-                            (subModel, i) =>
-                              subModel.premium && (
-                                <SelectItem
-                                  key={i}
-                                  value={subModel.id}
-                                  disabled
-                                >
-                                  {subModel.name}
-                                  <Lock className="inline-block ml-2 w-4 h-4" />
-                                </SelectItem>
-                              )
-                          )}
+                          {model.subModel
+                            .filter((s) => s.premium)
+                            .map((sub, i) => (
+                              <SelectItem
+                                key={i}
+                                value={sub.id}
+                                disabled={!has} // ❌ disable only if NOT premium
+                              >
+                                {sub.name} {!has && <Lock className="inline ml-1 w-4 h-4" />}
+                              </SelectItem>
+                            ))}
                         </SelectGroup>
                       )}
                     </SelectContent>
@@ -293,7 +288,7 @@ function AiMultiModel() {
               )}
             </div>
 
-            {model.premium && model.enable && (
+            {!has && model.premium && model.enable && (
               <div className="flex items-center justify-center h-full">
                 <Button>
                   <Lock className="mr-2 w-4 h-4" /> Upgrade To Unlock

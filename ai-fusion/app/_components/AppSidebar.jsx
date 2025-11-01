@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { useContext, useEffect, useState } from "react";
 import {
   Sidebar,
   SidebarContent,
@@ -11,7 +11,7 @@ import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "next-themes";
 import { Logs, MessageSquare, Moon, Sun, Zap } from "lucide-react";
-import { SignInButton, UserButton, useUser } from "@clerk/nextjs";
+import { SignInButton, useAuth, UserButton, useUser } from "@clerk/nextjs";
 import UsageCreditProgress from "./UsageCreditProgress";
 import {
   collection,
@@ -25,6 +25,8 @@ import { db } from "@/config/FirebaseConfig";
 import moment from "moment";
 import Link from "next/link";
 import axios from "axios";
+import { AiSelectedModelContext } from "@/context/AiSelectedModelContext";
+import PricingModel from "./PricingModel";
 
 const STATIC_LOGO = "/logo.svg";
 
@@ -35,10 +37,15 @@ function AppSidebar() {
   const [mounted, setMounted] = useState(false);
   const { user } = useUser();
   const [chatHistory, setChatHistory] = useState([]);
+  const { aiSelectedModels, messages, setMessages } = useContext(
+      AiSelectedModelContext
+    );
 const [freeMessageCount, setFreeMessageCount] = useState(0);
-
+const {has} = useAuth();
+  // const premiumUser = has({plan: "premium_model"});
 
   useEffect(() => setMounted(true), []);
+
 
  const getRemainingTokenMsgs = async () => {
   try {
@@ -51,9 +58,11 @@ const [freeMessageCount, setFreeMessageCount] = useState(0);
 };
 
 
-     useEffect(() => {
-      user && getRemainingTokenMsgs();
-    },[user]);
+    
+    
+  useEffect(()=>{
+ getRemainingTokenMsgs();
+  },[messages])
 
   // ✅ Real-time listener for chat history
   useEffect(() => {
@@ -213,10 +222,13 @@ const [freeMessageCount, setFreeMessageCount] = useState(0);
             </SignInButton>
           ) : (
             <div>
-              <UsageCreditProgress remainingToken={freeMessageCount} />
+             {!has && <div> <UsageCreditProgress remainingToken={freeMessageCount} />
+              <PricingModel >
               <Button className="w-full mb-3  transition-all duration-300">
                 <Zap /> Upgrade to Pro
               </Button>
+              </PricingModel>
+              </div>}
               <Button
                 className="flex w-full hover:bg-accent transition-colors duration-200"
                 variant="ghost"
