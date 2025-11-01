@@ -10,6 +10,7 @@ import { doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "@/config/FirebaseConfig";
 import { useUser } from "@clerk/clerk-react";
 import { useSearchParams } from "next/navigation";
+import { toast } from "sonner";
 
 function ChatInputBox() {
   const [userInput, setUserInput] = useState("");
@@ -20,6 +21,7 @@ function ChatInputBox() {
   const audioChunks = useRef([]);
   const fileInputRef = useRef(null);
   const [chatId, setChatId] = useState(null);
+
   const { user, isLoaded } = useUser();
   const params = useSearchParams();
 
@@ -27,39 +29,34 @@ function ChatInputBox() {
     AiSelectedModelContext
   );
 
+  // ✅ Load chat messages
   useEffect(() => {
     const chatId_ = params.get("chatId");
-    if(chatId_){
+    if (chatId_) {
       setChatId(chatId_);
       getMessages(chatId_);
-    }
-    else{
+    } else {
       setMessages([]);
-setChatId(uuidv4());
+      setChatId(uuidv4());
     }
-    
   }, [params]);
 
-  const getMessages = async(chatId)=>{
-    
- const docRef = doc(db, "chatHistory",chatId);
- const docSnap = await getDoc(docRef);
- console.log(docSnap.data());
- const docData = docSnap.data();
- setMessages(docData.messages);
- 
+  const getMessages = async (chatId) => {
+    const docRef = doc(db, "chatHistory", chatId);
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      const docData = docSnap.data();
+      setMessages(docData.messages || {});
+    }
+  };
 
-  }
-
-  // ✅ Check if at least one model is enabled
+  // ✅ Only allow free models
   const isAnyModelEnabled = Object.values(aiSelectedModels).some(
-    (m) => m.enable
+    (m) => m.enable && !m.premium
   );
 
-  // ✅ Save messages to Firestore (safe)
   const SaveMessages = async (updatedMessages) => {
     if (!chatId || !isLoaded) return;
-
     try {
       const docRef = doc(db, "chatHistory", chatId);
       await setDoc(docRef, {
@@ -73,170 +70,55 @@ setChatId(uuidv4());
     }
   };
 
-  // ✅ Main Send Function
+  // ✅ Handle send
   const handleSend = async (type = "text") => {
     if (!isAnyModelEnabled) {
-      console.warn("⚠️ No model enabled. Please enable at least one AI model before sending.");
+      toast.error("Please enable at least one free model to start chatting.");
+      return;
+    }
+    if (type === "text" && (!userInput || !userInput.trim())) return;
+
+    // 🔹 Deduct token
+    try {
+      const res = await axios.post("/api/user-remaining-msg", { token: 1 });
+
+      if (!res.data.allowed) {
+        toast.error("⚠️ You’ve reached your free message limit. Upgrade to continue.");
+        return;
+      }
+    } catch (err) {
+      if (err.response?.status === 403) {
+        toast.error("⚠️ You’ve used all 10 free messages.");
+      } else {
+        toast.error("Something went wrong while checking tokens.");
+        console.error("Token check failed:", err);
+      }
       return;
     }
 
-    if (type === "text" && (!userInput || !userInput.trim())) return;
-    
-      //Deduct and check Token Limit here before sending message
-      const result = await axios.post("/api/user-remaining-msg",{
-        token : 1
-      })
-      const remainingToken = result?.data?.remainingToken;
-
-      if(remainingToken<=0){
-        // Notify user about limit
-        return 
-      }
-
-    // Create user message
+    // 🔹 Create user message
     const userMessage =
       type === "text"
         ? { role: "user", content: userInput }
         : type === "file"
-        ? { role: "user", content: `📎 Sent a file: ${selectedFile?.name}` }
+        ? { role: "user", content: `📎 Sent file: ${selectedFile?.name}` }
         : { role: "user", content: "🎤 Sent a voice note" };
 
-    // Update messages locally first
+    // 🔹 Add locally
     let updatedMessages = { ...messages };
     Object.keys(aiSelectedModels).forEach((key) => {
-      if (aiSelectedModels[key].enable) {
+      const modelInfo = aiSelectedModels[key];
+      if (modelInfo.enable && !modelInfo.premium) {
         updatedMessages[key] = [...(updatedMessages[key] ?? []), userMessage];
       }
     });
     setMessages(updatedMessages);
-
-    // ✅ Save immediately after user sends message
     SaveMessages(updatedMessages);
-
-    const formData = new FormData();
-    formData.append("parentModel", "");
-
-    Object.entries(aiSelectedModels).forEach(([parentModel, modelInfo]) => {
-      if (!modelInfo.enable || !modelInfo.modelId) return;
-
-      formData.set("model", modelInfo.modelId);
-      formData.set("parentModel", parentModel);
-
-      if (type === "file" && selectedFile) {
-        formData.append("file", selectedFile);
-      } else if (type === "audio" && audioBlob) {
-        formData.append("audio", audioBlob, "recording.wav");
-      } else {
-        formData.append(
-          "msg",
-          JSON.stringify([{ role: "user", content: userInput }])
-        );
-      }
-    });
 
     setUserInput("");
     setSelectedFile(null);
     setAudioBlob(null);
-
-    Object.entries(aiSelectedModels).forEach(async ([parentModel, modelInfo]) => {
-      if (!modelInfo.enable || !modelInfo.modelId) return;
-
-
-        
-    
-
-      // Show loading
-      setMessages((prev) => ({
-        ...prev,
-        [parentModel]: [
-          ...(prev[parentModel] ?? []),
-          {
-            role: "assistant",
-            content: "Loading...",
-            model: parentModel,
-            loading: true,
-          },
-        ],
-      }));
-
-      try {
-        const result = await axios.post("/api/aiMultiModel", formData, {
-          headers: { "Content-Type": "multipart/form-data" },
-        });
-
-        const { data } = result.data;
-        const aiResponse =
-          data?.aiResponse || data?.response || "✅ Got your message!";
-
-        // Replace loading message
-        setMessages((prev) => {
-          const updated = [...(prev[parentModel] ?? [])];
-          const idx = updated.findIndex((m) => m.loading);
-          if (idx !== -1)
-            updated[idx] = {
-              role: "assistant",
-              content: aiResponse,
-              model: parentModel,
-              loading: false,
-            };
-          const allUpdated = { ...prev, [parentModel]: updated };
-          SaveMessages(allUpdated); // ✅ Save updated assistant response
-          return allUpdated;
-        });
-      } catch (err) {
-        console.error("Error:", err);
-        setMessages((prev) => {
-          const updated = {
-            ...prev,
-            [parentModel]: [
-              ...(prev[parentModel] ?? []),
-              { role: "assistant", content: "⚠️ Error sending message." },
-            ],
-          };
-          SaveMessages(updated);
-          return updated;
-        });
-      }
-    });
   };
-
-  // 🎤 Start / Stop Recording
-  const handleAudioRecording = async () => {
-    if (!isAnyModelEnabled) {
-      console.warn("⚠️ No model enabled. Please enable one before recording.");
-      return;
-    }
-
-    if (isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-      return;
-    }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
-      audioChunks.current = [];
-      recorder.ondataavailable = (e) => audioChunks.current.push(e.data);
-      recorder.onstop = () => {
-        const blob = new Blob(audioChunks.current, { type: "audio/wav" });
-        setAudioBlob(blob);
-        stream.getTracks().forEach((track) => track.stop());
-      };
-      recorder.start();
-      mediaRecorderRef.current = recorder;
-      setIsRecording(true);
-    } catch (err) {
-      console.error("🎤 Microphone access denied:", err);
-    }
-  };
-
-  useEffect(() => {
-    if (audioBlob) handleSend("audio");
-  }, [audioBlob]);
-
-  
-
 
   return (
     <div className="relative h-screen">
@@ -251,7 +133,7 @@ setChatId(uuidv4());
             placeholder={
               isAnyModelEnabled
                 ? "Ask me anything..."
-                : "Enable at least one AI model to start chatting..."
+                : "Enable a free AI model to start chatting..."
             }
             value={userInput}
             onChange={(e) => setUserInput(e.target.value)}
@@ -264,7 +146,7 @@ setChatId(uuidv4());
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => isAnyModelEnabled && fileInputRef.current.click()}
+              onClick={() => fileInputRef.current.click()}
               disabled={!isAnyModelEnabled}
             >
               <Paperclip className="h-5 w-5" />
@@ -284,19 +166,6 @@ setChatId(uuidv4());
             />
 
             <div className="flex gap-4">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleAudioRecording}
-                disabled={!isAnyModelEnabled}
-              >
-                {isRecording ? (
-                  <StopCircle className="text-red-500 h-6 w-6" />
-                ) : (
-                  <Mic className="h-5 w-5" />
-                )}
-              </Button>
-
               <Button
                 size="icon"
                 onClick={() => handleSend("text")}
