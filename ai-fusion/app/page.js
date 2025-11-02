@@ -1,11 +1,11 @@
-"use client";
+import { Suspense } from "react";
 import ChatInputBox from "./_components/ChatInputBox";
 
-export default function Home() {
-  
+
+export default function HomePage() {
   return (
-    <div>
-      <ChatInputBox/>
-    </div>
+    <Suspense fallback={<p>Loading...</p>}>
+      <ChatInputBox />
+    </Suspense>
   );
 }
