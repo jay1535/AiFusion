@@ -35,31 +35,35 @@ function ChatInputBox() {
     ? AiModelList.length > 0
     : AiModelList.some((m) => m.enable && !m.premium);
 
-  // ✅ Load chat or create new safely (client-side only)
+  // ✅ Load messages or create new chat
   useEffect(() => {
-    if (!params) return;
     const chatId_ = params.get("chatId");
     if (chatId_) {
       setChatId(chatId_);
-      getMessages(chatId_);
+      loadMessages(chatId_);
     } else {
       const newChatId = uuidv4();
       setChatId(newChatId);
       setMessages({});
     }
-  }, [params, setMessages]);
+  }, [params]);
 
-  const getMessages = async (chatId) => {
-    if (!chatId) return;
-    const docRef = doc(db, "chatHistory", chatId);
-    const docSnap = await getDoc(docRef);
-    if (docSnap.exists()) {
-      const data = docSnap.data();
-      setMessages(data.messages || {});
+  // ✅ Load chat messages
+  const loadMessages = async (chatId) => {
+    try {
+      const docRef = doc(db, "chatHistory", chatId);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setMessages(data.messages || {});
+      }
+    } catch (err) {
+      console.error("Error loading messages:", err);
     }
   };
 
-  const SaveMessages = async (updatedMessages) => {
+  // ✅ Save messages in Firestore
+  const saveMessages = async (updatedMessages, firstMsg = null) => {
     if (!chatId || !isLoaded) return;
     try {
       const docRef = doc(db, "chatHistory", chatId);
@@ -70,6 +74,7 @@ function ChatInputBox() {
           userEmail: user?.primaryEmailAddress?.emailAddress || "unknown",
           messages: updatedMessages,
           lastUpdated: Date.now(),
+          ...(firstMsg && { title: firstMsg }), // 👈 save first message as title
         },
         { merge: true }
       );
@@ -87,7 +92,7 @@ function ChatInputBox() {
       return;
     }
 
-    // Check remaining tokens
+    // 🔐 Token check
     const tokenRes = await axios.post("/api/user-remaining-msg", { token: 1 });
     const remainingToken = tokenRes?.data?.remainingToken;
     if (remainingToken <= 0) {
@@ -102,30 +107,33 @@ function ChatInputBox() {
         ? { role: "user", content: `📎 Sent file: ${selectedFile?.name}` }
         : { role: "user", content: "🎤 Sent a voice note" };
 
-    // Allowed models
     const allowedModels = isPremiumUser
       ? AiModelList
       : AiModelList.filter((m) => m.enable && !m.premium);
 
     if (!allowedModels.length) {
-      toast.error("⚠️ No free AI models available for your plan.");
+      toast.error("⚠️ No available AI models.");
       return;
     }
 
-    // Add message locally
     let updatedMessages = { ...messages };
     allowedModels.forEach((m) => {
-      updatedMessages[m.model] = [...(updatedMessages[m.model] ?? []), userMessage];
+      updatedMessages[m.model] = [
+        ...(updatedMessages[m.model] ?? []),
+        userMessage,
+      ];
     });
     setMessages(updatedMessages);
-    SaveMessages(updatedMessages);
 
-    // Clear input
+    // ✅ If this is the first message of the chat — add it to sidebar
+    const isFirstMessage = Object.values(messages).every((msgs) => msgs.length === 0);
+    await saveMessages(updatedMessages, isFirstMessage ? userInput : null);
+
     setUserInput("");
     setSelectedFile(null);
     setAudioBlob(null);
 
-    // Send to each model
+    // 🧠 AI Response
     for (const model of allowedModels) {
       const subModel = model.subModel.find((s) => !s.premium || isPremiumUser);
       if (!subModel) continue;
@@ -133,17 +141,13 @@ function ChatInputBox() {
       const formData = new FormData();
       formData.append("model", subModel.id);
       formData.append("parentModel", model.model);
-      formData.append(
-        "msg",
-        JSON.stringify([{ role: "user", content: userInput }])
-      );
+      formData.append("msg", JSON.stringify([{ role: "user", content: userInput }]));
 
-      // Show loading
       setMessages((prev) => ({
         ...prev,
         [model.model]: [
           ...(prev[model.model] ?? []),
-          { role: "assistant", content: "Loading...", loading: true },
+          { role: "assistant", content: "Thinking...", loading: true },
         ],
       }));
 
@@ -153,32 +157,24 @@ function ChatInputBox() {
         });
 
         const aiResponse =
-          res.data?.data?.aiResponse || res.data?.data?.response || "✅ Got your message!";
+          res.data?.data?.aiResponse ||
+          res.data?.data?.response ||
+          "✅ Got your message!";
 
         setMessages((prev) => {
           const updated = [...(prev[model.model] ?? [])];
           const idx = updated.findIndex((m) => m.loading);
-          if (idx !== -1) {
-            updated[idx] = { role: "assistant", content: aiResponse, model: model.model };
-          }
+          if (idx !== -1) updated[idx] = { role: "assistant", content: aiResponse };
           const allUpdated = { ...prev, [model.model]: updated };
-          SaveMessages(allUpdated);
+          saveMessages(allUpdated);
           return allUpdated;
         });
       } catch (err) {
         console.error(`❌ ${model.model} error:`, err);
-        setMessages((prev) => ({
-          ...prev,
-          [model.model]: [
-            ...(prev[model.model] ?? []),
-            { role: "assistant", content: "⚠️ Error fetching response." },
-          ],
-        }));
       }
     }
   };
 
-  // Voice recording
   const handleAudioRecording = async () => {
     if (isRecording) {
       mediaRecorderRef.current.stop();
