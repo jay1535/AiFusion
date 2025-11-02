@@ -16,21 +16,18 @@ import { Lock, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AiSelectedModelContext } from "@/context/AiSelectedModelContext";
 import { useUser } from "@clerk/clerk-react";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "@/config/FirebaseConfig";
 import { useAuth } from "@clerk/nextjs";
 
-function AiMultiModel() {
+function AiMultiModel({ activeChatId }) {
   const { messages, setMessages, aiSelectedModels, setAiSelectedModels } =
     useContext(AiSelectedModelContext);
   const { user } = useUser();
   const { has } = useAuth(); // premium check
 
-  // ------------------------
-  // Initialize AI Models once
-  // ------------------------
-  const [aiModelList, setAiModelList] = useState(() => {
-    return AiModelList.map((model) => {
+  const [aiModelList, setAiModelList] = useState(() =>
+    AiModelList.map((model) => {
       const firstAvailable = has
         ? model.subModel[0]
         : model.subModel.find((s) => !s.premium);
@@ -39,84 +36,48 @@ function AiMultiModel() {
         enable: !!firstAvailable,
         defaultSubModel: firstAvailable?.id || null,
       };
-    });
-  });
-
-  // Initialize selected models once
-  useEffect(() => {
-    const initialSelected = aiModelList.reduce((acc, model) => {
-      if (model.enable && model.defaultSubModel) {
-        acc[model.model] = {
-          modelId: model.defaultSubModel,
-          enable: true,
-        };
-      }
-      return acc;
-    }, {});
-    setAiSelectedModels(initialSelected);
-  }, [aiModelList, setAiSelectedModels]);
+    })
+  );
 
   // ------------------------
-  // Load Firebase saved state
+  // Load messages for current chat
   // ------------------------
   useEffect(() => {
-    const loadUserState = async () => {
-      if (!user) return;
-      const userRef = doc(db, "users", user.id);
-      const snapshot = await getDoc(userRef);
-      if (snapshot.exists()) {
-        const data = snapshot.data();
-        if (data.modelState?.modelList) {
-          const updatedList = data.modelState.modelList.map((m) => {
-            const firstAvailable = has
-              ? m.subModel[0]
-              : m.subModel.find((s) => !s.premium);
-            return {
-              ...m,
-              enable: !!firstAvailable,
-              defaultSubModel: firstAvailable?.id || null,
-            };
-          });
-
-          setAiModelList(updatedList);
-
-          const updatedSelected = updatedList.reduce((acc, model) => {
-            if (model.enable && model.defaultSubModel) {
-              acc[model.model] = {
-                modelId: model.defaultSubModel,
-                enable: true,
-              };
-            }
-            return acc;
-          }, {});
-          setAiSelectedModels(updatedSelected);
-          setMessages({});
-        }
+    const loadChat = async () => {
+      if (!user || !activeChatId) return;
+      const chatRef = doc(db, "users", user.id, "chats", activeChatId);
+      const snap = await getDoc(chatRef);
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data.messages) setMessages(data.messages);
+      } else {
+        setMessages({});
       }
     };
-    loadUserState();
-  }, [user, has, setAiSelectedModels, setMessages]);
+    loadChat();
+  }, [user, activeChatId, setMessages]);
 
   // ------------------------
-  // Save state to Firebase
+  // Save all messages on change
   // ------------------------
   useEffect(() => {
-    if (!user) return;
-    const saveState = async () => {
-      const userRef = doc(db, "users", user.id);
-      const stateToSave = {
-        modelList: aiModelList,
-        messages,
-        aiSelectedModels,
-      };
-      await setDoc(userRef, { modelState: stateToSave }, { merge: true });
-      localStorage.setItem("AiModelState", JSON.stringify(stateToSave));
+    if (!user || !activeChatId) return;
+    const saveMessages = async () => {
+      const chatRef = doc(db, "users", user.id, "chats", activeChatId);
+      await setDoc(
+        chatRef,
+        {
+          messages,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
     };
-    saveState();
-  }, [aiModelList, messages, aiSelectedModels, user]);
+    saveMessages();
+  }, [messages, user, activeChatId]);
 
   // ------------------------
-  // Handlers
+  // Model toggle handlers
   // ------------------------
   const onToggleChange = (model, value) => {
     setAiModelList((prev) =>
@@ -172,7 +133,7 @@ function AiMultiModel() {
   };
 
   // ------------------------
-  // Render
+  // Render Models & Messages
   // ------------------------
   return (
     <div className="flex flex-row overflow-x-auto no-scrollbar gap-4 mt-2 h-[70vh] p-4">
@@ -185,7 +146,9 @@ function AiMultiModel() {
             key={index}
             className={`flex flex-col border rounded-2xl shadow-md bg-card/20 
               hover:bg-card/30 transition-all duration-200
-              h-full p-4 ${model.enable ? "min-w-[400px] max-w-[420px]" : "min-w-[160px]"}`}
+              h-full p-4 ${
+                model.enable ? "min-w-[400px] max-w-[420px]" : "min-w-[160px]"
+              }`}
           >
             <div className="flex w-full items-center justify-between mb-4">
               <div className="flex items-center gap-3">
@@ -232,7 +195,8 @@ function AiMultiModel() {
                                 value={sub.id}
                                 disabled={!has}
                               >
-                                {sub.name} {!has && <Lock className="inline ml-1 w-4 h-4" />}
+                                {sub.name}{" "}
+                                {!has && <Lock className="inline ml-1 w-4 h-4" />}
                               </SelectItem>
                             ))}
                         </SelectGroup>

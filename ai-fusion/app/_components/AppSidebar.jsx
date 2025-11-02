@@ -17,8 +17,6 @@ import {
   collection,
   query,
   where,
-  setDoc,
-  doc,
   onSnapshot,
 } from "firebase/firestore";
 import { db } from "@/config/FirebaseConfig";
@@ -30,39 +28,31 @@ import PricingModel from "./PricingModel";
 
 const STATIC_LOGO = "/logo.svg";
 
-
-
 function AppSidebar() {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const { user } = useUser();
   const [chatHistory, setChatHistory] = useState([]);
-  const { aiSelectedModels, messages, setMessages } = useContext(
-      AiSelectedModelContext
-    );
-const [freeMessageCount, setFreeMessageCount] = useState(0);
-const {has} = useAuth();
-  // const premiumUser = has({plan: "premium_model"});
+  const { messages, setMessages } = useContext(AiSelectedModelContext);
+  const [freeMessageCount, setFreeMessageCount] = useState(0);
+  const { has } = useAuth();
 
   useEffect(() => setMounted(true), []);
 
+  // ✅ Fetch remaining tokens
+  const getRemainingTokenMsgs = async () => {
+    try {
+      const result = await axios.post("/api/user-remaining-msg", { token: 0 });
+      setFreeMessageCount(result?.data?.remainingToken || 0);
+    } catch (err) {
+      console.error("Error fetching remaining tokens:", err);
+      setFreeMessageCount(0);
+    }
+  };
 
- const getRemainingTokenMsgs = async () => {
-  try {
-    const result = await axios.post("/api/user-remaining-msg", { token: 0 });
-    setFreeMessageCount(result?.data?.remainingToken || 0);
-  } catch (err) {
-    console.error("Error fetching remaining tokens:", err);
-    setFreeMessageCount(0); // fallback
-  }
-};
-
-
-    
-    
-  useEffect(()=>{
- getRemainingTokenMsgs();
-  },[messages])
+  useEffect(() => {
+    getRemainingTokenMsgs();
+  }, [messages]);
 
   // ✅ Real-time listener for chat history
   useEffect(() => {
@@ -84,6 +74,7 @@ const {has} = useAuth();
     return () => unsubscribe();
   }, [user]);
 
+  // ✅ Helper: Get last message from chat
   const getLastUserMessageFromChat = (chat) => {
     const allMessages = Object.values(chat.messages || {}).flat();
     const userMessages = allMessages.filter((msg) => msg.role === "user");
@@ -96,6 +87,12 @@ const {has} = useAuth();
       message: lastUserMessage,
       lastUpdated: formattedDate,
     };
+  };
+
+  // ✅ Handler for “New Chat” — clears messages and resets context
+  const handleNewChat = () => {
+    setMessages([]); // clear chat context
+    localStorage.removeItem("currentChatId"); // optional: clear stored chat id
   };
 
   if (!mounted) return null;
@@ -114,7 +111,7 @@ const {has} = useAuth();
                 height={30}
                 className="rounded-md group-hover:rotate-6 transition-transform duration-200"
               />
-              <h2 className="font-bold text-xl  transition-colors duration-200">
+              <h2 className="font-bold text-xl transition-colors duration-200">
                 AiFusion
               </h2>
             </div>
@@ -129,12 +126,13 @@ const {has} = useAuth();
             </Button>
           </div>
 
-          {user ?
-          <Link href={'/'}> 
-            <Button className="w-full mt-5 transition-all duration-300">
-              <MessageSquare /> New Chat
-            </Button>
-           </Link>: (
+          {user ? (
+            <Link href="/" onClick={handleNewChat}>
+              <Button className="w-full mt-5 transition-all duration-300">
+                <MessageSquare /> New Chat
+              </Button>
+            </Link>
+          ) : (
             <SignInButton>
               <Button className="w-full mt-5 transition-all duration-300">
                 <MessageSquare /> New Chat
@@ -165,48 +163,42 @@ const {has} = useAuth();
             )}
 
             {/* Chat History Cards */}
-          
-<div className="mt-4 flex flex-col gap-3">
-  {chatHistory.map((chat, index) => {
-    const lastMsg = getLastUserMessageFromChat(chat);
-    return (
-      <Link
-        href={"?chatId=" + chat.chatId}
-        key={index}
-        className="
-          relative overflow-hidden
-          rounded-xl border border-gray-200 dark:border-gray-700
-          bg-gray-50 dark:bg-gray-800/40
-          shadow-sm
-          transition-all duration-300 ease-out
-          hover:shadow-md hover:-translate-y-[2px] hover:bg-gray-100 dark:hover:bg-gray-700/50
-        "
-      >
-        <div className="flex items-start gap-3 p-3">
-          <div className="flex-shrink-0 mt-1">
-            <Image
-              src={STATIC_LOGO}
-              alt="Logo"
-              width={24}
-              height={24}
-              className="rounded-md transition-transform duration-300"
-            />
-          </div>
+            <div className="mt-4 flex flex-col gap-3">
+              {chatHistory.map((chat, index) => {
+                const lastMsg = getLastUserMessageFromChat(chat);
+                return (
+                  <Link
+                    href={"?chatId=" + chat.chatId}
+                    key={index}
+                    className="relative overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700
+                    bg-gray-50 dark:bg-gray-800/40 shadow-sm
+                    transition-all duration-300 ease-out
+                    hover:shadow-md hover:-translate-y-[2px] hover:bg-gray-100 dark:hover:bg-gray-700/50"
+                  >
+                    <div className="flex items-start gap-3 p-3">
+                      <div className="flex-shrink-0 mt-1">
+                        <Image
+                          src={STATIC_LOGO}
+                          alt="Logo"
+                          width={24}
+                          height={24}
+                          className="rounded-md transition-transform duration-300"
+                        />
+                      </div>
 
-          <div className="flex flex-col flex-1 min-w-0">
-            <span className="text-sm text-gray-900 dark:text-gray-100 font-medium truncate transition-colors duration-200">
-              {lastMsg.message}
-            </span>
-            <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              {lastMsg.lastUpdated}
-            </span>
-          </div>
-        </div>
-      </Link>
-    );
-  })}
-</div>
-
+                      <div className="flex flex-col flex-1 min-w-0">
+                        <span className="text-sm text-gray-900 dark:text-gray-100 font-medium truncate transition-colors duration-200">
+                          {lastMsg.message}
+                        </span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          {lastMsg.lastUpdated}
+                        </span>
+                      </div>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
           </div>
         </SidebarGroup>
       </SidebarContent>
@@ -222,13 +214,16 @@ const {has} = useAuth();
             </SignInButton>
           ) : (
             <div>
-             {!has && <div> <UsageCreditProgress remainingToken={freeMessageCount} />
-              <PricingModel >
-              <Button className="w-full mb-3  transition-all duration-300">
-                <Zap /> Upgrade to Pro
-              </Button>
-              </PricingModel>
-              </div>}
+              {!has && (
+                <div>
+                  <UsageCreditProgress remainingToken={freeMessageCount} />
+                  <PricingModel>
+                    <Button className="w-full mb-3 transition-all duration-300">
+                      <Zap /> Upgrade to Pro
+                    </Button>
+                  </PricingModel>
+                </div>
+              )}
               <Button
                 className="flex w-full hover:bg-accent transition-colors duration-200"
                 variant="ghost"
