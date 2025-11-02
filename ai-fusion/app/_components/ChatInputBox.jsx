@@ -23,16 +23,21 @@ function ChatInputBox() {
   const audioChunks = useRef([]);
   const fileInputRef = useRef(null);
   const [chatId, setChatId] = useState(null);
+
   const { user, isLoaded } = useUser();
   const params = useSearchParams();
   const { has } = useAuth();
+  const isPremiumUser = has;
 
   const { messages, setMessages } = useContext(AiSelectedModelContext);
 
-  const isPremiumUser = has; // true if user is premium
+  const isAnyModelEnabled = isPremiumUser
+    ? AiModelList.length > 0
+    : AiModelList.some((m) => m.enable && !m.premium);
 
-  // Load chat or create new
+  // ✅ Load chat or create new safely (client-side only)
   useEffect(() => {
+    if (!params) return;
     const chatId_ = params.get("chatId");
     if (chatId_) {
       setChatId(chatId_);
@@ -42,9 +47,10 @@ function ChatInputBox() {
       setChatId(newChatId);
       setMessages({});
     }
-  }, [params]);
+  }, [params, setMessages]);
 
   const getMessages = async (chatId) => {
+    if (!chatId) return;
     const docRef = doc(db, "chatHistory", chatId);
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
@@ -57,21 +63,25 @@ function ChatInputBox() {
     if (!chatId || !isLoaded) return;
     try {
       const docRef = doc(db, "chatHistory", chatId);
-      await setDoc(docRef, {
-        chatId,
-        userEmail: user?.primaryEmailAddress?.emailAddress || "unknown",
-        messages: updatedMessages,
-        lastUpdated: Date.now(),
-      });
+      await setDoc(
+        docRef,
+        {
+          chatId,
+          userEmail: user?.primaryEmailAddress?.emailAddress || "unknown",
+          messages: updatedMessages,
+          lastUpdated: Date.now(),
+        },
+        { merge: true }
+      );
     } catch (err) {
       console.error("🔥 Firestore save error:", err);
     }
   };
 
-  // Send message to all enabled & unlocked models
   const handleSend = async (type = "text") => {
     if (!isLoaded) return;
     if (type === "text" && !userInput.trim()) return;
+
     if (!isPremiumUser && type !== "text") {
       toast.error("⚠️ File and audio uploads are for Premium users only.");
       return;
@@ -117,15 +127,16 @@ function ChatInputBox() {
 
     // Send to each model
     for (const model of allowedModels) {
-      const subModel = model.subModel.find(
-        (s) => !s.premium || isPremiumUser
-      );
+      const subModel = model.subModel.find((s) => !s.premium || isPremiumUser);
       if (!subModel) continue;
 
       const formData = new FormData();
       formData.append("model", subModel.id);
       formData.append("parentModel", model.model);
-      formData.append("msg", JSON.stringify([{ role: "user", content: userInput }]));
+      formData.append(
+        "msg",
+        JSON.stringify([{ role: "user", content: userInput }])
+      );
 
       // Show loading
       setMessages((prev) => ({
@@ -196,10 +207,6 @@ function ChatInputBox() {
     if (audioBlob) handleSend("audio");
   }, [audioBlob]);
 
-  const isAnyModelEnabled = isPremiumUser
-    ? AiModelList.length > 0
-    : AiModelList.some((m) => m.enable && !m.premium);
-
   return (
     <div className="relative h-screen">
       <AiMultiModel />
@@ -222,7 +229,7 @@ function ChatInputBox() {
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => isAnyModelEnabled && fileInputRef.current.click()}
+              onClick={() => isAnyModelEnabled && fileInputRef.current?.click()}
               disabled={!isAnyModelEnabled}
             >
               <Paperclip className="h-5 w-5" />
