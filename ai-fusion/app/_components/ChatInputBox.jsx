@@ -1,4 +1,5 @@
 "use client";
+
 import { Button } from "@/components/ui/button";
 import { Mic, Paperclip, Send, StopCircle } from "lucide-react";
 import React, { useContext, useEffect, useRef, useState } from "react";
@@ -12,13 +13,29 @@ import { useUser } from "@clerk/clerk-react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import AiModelList from "@/shared/AiModelList";
-import { useAuth } from "@clerk/nextjs";
+import { DefaultModel } from "@/shared/AiModelsShared";
 
-function ChatInputBox() {
+/* =====================================================
+   🔐 HELPERS
+===================================================== */
+const isModelAllowed = ({ modelName, modelId, isPremium }) => {
+  if (!modelId) return false;
+
+  // Free user → only default/free sub-model allowed
+  if (!isPremium) {
+    return DefaultModel[modelName]?.modelId === modelId;
+  }
+
+  // Premium user → all models allowed
+  return true;
+};
+
+export default function ChatInputBox() {
   const [userInput, setUserInput] = useState("");
   const [selectedFile, setSelectedFile] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState(null);
+
   const mediaRecorderRef = useRef(null);
   const audioChunks = useRef([]);
   const fileInputRef = useRef(null);
@@ -26,77 +43,95 @@ function ChatInputBox() {
 
   const { user, isLoaded } = useUser();
   const params = useSearchParams();
-  const { has } = useAuth();
-  const isPremiumUser = has;
 
-  const { messages, setMessages } = useContext(AiSelectedModelContext);
+  const { messages, setMessages, aiSelectedModels } =
+    useContext(AiSelectedModelContext);
 
-  const isAnyModelEnabled = isPremiumUser
-    ? AiModelList.length > 0
-    : AiModelList.some((m) => m.enable && !m.premium);
+  /* =====================================================
+     ✅ PREMIUM CHECK (FINAL & SAFE)
+  ===================================================== */
+  const isPremium =
+    user?.publicMetadata?.plan === "premium" ||
+    user?.privateMetadata?.isPremium === true;
 
-  // ✅ Load messages or create new chat
+  /* =====================================================
+     ✅ FINAL SOURCE OF TRUTH — ENABLED & ALLOWED MODELS
+  ===================================================== */
+  const enabledModels = Object.entries(aiSelectedModels)
+    .filter(([modelName, config]) => {
+      if (!config?.enable) return false;
+
+      return isModelAllowed({
+        modelName,
+        modelId: config.modelId,
+        isPremium,
+      });
+    })
+    .map(([modelName, config]) => ({
+      model: modelName,
+      modelId: config.modelId,
+    }));
+
+  const isAnyModelEnabled = enabledModels.length > 0;
+
+  /* =====================================================
+     LOAD / CREATE CHAT
+  ===================================================== */
   useEffect(() => {
-    const chatId_ = params.get("chatId");
-    if (chatId_) {
-      setChatId(chatId_);
-      loadMessages(chatId_);
+    const id = params.get("chatId");
+    if (id) {
+      setChatId(id);
+      loadMessages(id);
     } else {
-      const newChatId = uuidv4();
-      setChatId(newChatId);
+      const newId = uuidv4();
+      setChatId(newId);
       setMessages({});
     }
   }, [params]);
 
-  // ✅ Load chat messages
-  const loadMessages = async (chatId) => {
-    try {
-      const docRef = doc(db, "chatHistory", chatId);
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        setMessages(data.messages || {});
-      }
-    } catch (err) {
-      console.error("Error loading messages:", err);
-    }
+  const loadMessages = async (id) => {
+    const ref = doc(db, "chatHistory", id);
+    const snap = await getDoc(ref);
+    if (snap.exists()) setMessages(snap.data().messages || {});
   };
 
-  // ✅ Save messages in Firestore
-  const saveMessages = async (updatedMessages, firstMsg = null) => {
+  /* =====================================================
+     SAVE CHAT (SANITIZED)
+  ===================================================== */
+  const saveMessages = async (updated, firstMsg = null) => {
     if (!chatId || !isLoaded) return;
-    try {
-      const docRef = doc(db, "chatHistory", chatId);
-      await setDoc(
-        docRef,
-        {
-          chatId,
-          userEmail: user?.primaryEmailAddress?.emailAddress || "unknown",
-          messages: updatedMessages,
-          lastUpdated: Date.now(),
-          ...(firstMsg && { title: firstMsg }), // 👈 save first message as title
-        },
-        { merge: true }
-      );
-    } catch (err) {
-      console.error("🔥 Firestore save error:", err);
-    }
+
+    const safe = JSON.parse(JSON.stringify(updated));
+
+    await setDoc(
+      doc(db, "chatHistory", chatId),
+      {
+        chatId,
+        userEmail: user?.primaryEmailAddress?.emailAddress,
+        messages: safe,
+        lastUpdated: Date.now(),
+        ...(firstMsg && { title: firstMsg }),
+      },
+      { merge: true }
+    );
   };
 
+  /* =====================================================
+     SEND MESSAGE (ONLY ALLOWED MODELS)
+  ===================================================== */
   const handleSend = async (type = "text") => {
     if (!isLoaded) return;
     if (type === "text" && !userInput.trim()) return;
 
-    if (!isPremiumUser && type !== "text") {
-      toast.error("⚠️ File and audio uploads are for Premium users only.");
+    if (!isAnyModelEnabled) {
+      toast.error("Enable at least one valid AI model.");
       return;
     }
 
-    // 🔐 Token check
+    // Token check
     const tokenRes = await axios.post("/api/user-remaining-msg", { token: 1 });
-    const remainingToken = tokenRes?.data?.remainingToken;
-    if (remainingToken <= 0) {
-      toast.error("⚠️ You’ve reached your message limit.");
+    if (tokenRes?.data?.remainingToken <= 0) {
+      toast.error("Message limit reached.");
       return;
     }
 
@@ -104,173 +139,177 @@ function ChatInputBox() {
       type === "text"
         ? { role: "user", content: userInput }
         : type === "file"
-        ? { role: "user", content: `📎 Sent file: ${selectedFile?.name}` }
-        : { role: "user", content: "🎤 Sent a voice note" };
+        ? { role: "user", content: `📎 ${selectedFile?.name}` }
+        : { role: "user", content: "🎤 Voice message" };
 
-    const allowedModels = isPremiumUser
-      ? AiModelList
-      : AiModelList.filter((m) => m.enable && !m.premium);
-
-    if (!allowedModels.length) {
-      toast.error("⚠️ No available AI models.");
-      return;
-    }
-
-    let updatedMessages = { ...messages };
-    allowedModels.forEach((m) => {
-      updatedMessages[m.model] = [
-        ...(updatedMessages[m.model] ?? []),
-        userMessage,
-      ];
+    /* ➕ Add user message ONLY to allowed models */
+    let updated = { ...messages };
+    enabledModels.forEach(({ model }) => {
+      updated[model] = [...(updated[model] ?? []), userMessage];
     });
-    setMessages(updatedMessages);
 
-    // ✅ If this is the first message of the chat — add it to sidebar
-    const isFirstMessage = Object.values(messages).every((msgs) => msgs.length === 0);
-    await saveMessages(updatedMessages, isFirstMessage ? userInput : null);
+    setMessages(updated);
+
+    const isFirst =
+      Object.values(messages).every((arr) => arr.length === 0);
+
+    await saveMessages(updated, isFirst ? userInput : null);
 
     setUserInput("");
     setSelectedFile(null);
     setAudioBlob(null);
 
-    // 🧠 AI Response
-    for (const model of allowedModels) {
-      const subModel = model.subModel.find((s) => !s.premium || isPremiumUser);
-      if (!subModel) continue;
-
-      const formData = new FormData();
-      formData.append("model", subModel.id);
-      formData.append("parentModel", model.model);
-      formData.append("msg", JSON.stringify([{ role: "user", content: userInput }]));
-
-      setMessages((prev) => ({
-        ...prev,
-        [model.model]: [
-          ...(prev[model.model] ?? []),
+    /* ⏳ Thinking state */
+    setMessages((prev) => {
+      const next = { ...prev };
+      enabledModels.forEach(({ model }) => {
+        next[model] = [
+          ...(next[model] ?? []),
           { role: "assistant", content: "Thinking...", loading: true },
-        ],
-      }));
+        ];
+      });
+      return next;
+    });
 
-      try {
-        const res = await axios.post("/api/aiMultiModel", formData, {
-          headers: { "Content-Type": "multipart/form-data" },
-        });
+    /* 🚀 Parallel AI calls */
+    await Promise.all(
+      enabledModels.map(async ({ model, modelId }) => {
+        try {
+          const formData = new FormData();
+          formData.append("model", modelId);
+          formData.append("parentModel", model);
+          formData.append(
+            "msg",
+            JSON.stringify([{ role: "user", content: userInput }])
+          );
 
-        const aiResponse =
-          res.data?.data?.aiResponse ||
-          res.data?.data?.response ||
-          "✅ Got your message!";
+          const res = await axios.post("/api/aiMultiModel", formData);
+          const aiResponse =
+            res.data?.data?.aiResponse ||
+            res.data?.data?.response ||
+            "Response received";
 
-        setMessages((prev) => {
-          const updated = [...(prev[model.model] ?? [])];
-          const idx = updated.findIndex((m) => m.loading);
-          if (idx !== -1) updated[idx] = { role: "assistant", content: aiResponse };
-          const allUpdated = { ...prev, [model.model]: updated };
-          saveMessages(allUpdated);
-          return allUpdated;
-        });
-      } catch (err) {
-        console.error(`❌ ${model.model} error:`, err);
-      }
-    }
+          setMessages((prev) => {
+            const msgs = [...(prev[model] ?? [])];
+            const idx = msgs.findIndex((m) => m.loading);
+            if (idx !== -1)
+              msgs[idx] = { role: "assistant", content: aiResponse };
+
+            const next = { ...prev, [model]: msgs };
+            saveMessages(next);
+            return next;
+          });
+        } catch {
+          setMessages((prev) => {
+            const msgs = [...(prev[model] ?? [])];
+            const idx = msgs.findIndex((m) => m.loading);
+            if (idx !== -1)
+              msgs[idx] = {
+                role: "assistant",
+                content: "❌ Failed to respond.",
+              };
+            return { ...prev, [model]: msgs };
+          });
+        }
+      })
+    );
   };
 
+  /* =====================================================
+     AUDIO
+  ===================================================== */
   const handleAudioRecording = async () => {
     if (isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
       return;
     }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
-      audioChunks.current = [];
-      recorder.ondataavailable = (e) => audioChunks.current.push(e.data);
-      recorder.onstop = () => {
-        const blob = new Blob(audioChunks.current, { type: "audio/wav" });
-        setAudioBlob(blob);
-        stream.getTracks().forEach((t) => t.stop());
-      };
-      recorder.start();
-      mediaRecorderRef.current = recorder;
-      setIsRecording(true);
-    } catch (err) {
-      console.error("🎤 Microphone denied:", err);
-    }
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const recorder = new MediaRecorder(stream);
+    audioChunks.current = [];
+
+    recorder.ondataavailable = (e) => audioChunks.current.push(e.data);
+    recorder.onstop = () => {
+      setAudioBlob(new Blob(audioChunks.current, { type: "audio/wav" }));
+      stream.getTracks().forEach((t) => t.stop());
+    };
+
+    recorder.start();
+    mediaRecorderRef.current = recorder;
+    setIsRecording(true);
   };
 
   useEffect(() => {
     if (audioBlob) handleSend("audio");
   }, [audioBlob]);
 
+  /* =====================================================
+     UI
+  ===================================================== */
   return (
     <div className="relative h-screen">
       <AiMultiModel />
-      <div className="fixed bottom-0 left-0 w-full flex justify-center px-4 pb-4">
-        <div className="w-full border rounded-xl shadow-md max-w-2xl p-4 bg-background">
+
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-full max-w-2xl px-4">
+        <div className="rounded-2xl border bg-background shadow-lg p-4">
           <input
-            type="text"
+            className="w-full bg-transparent outline-none text-sm"
             placeholder={
               isAnyModelEnabled
-                ? "Ask me anything..."
-                : "Enable a model to start chatting..."
+                ? "Ask anything…"
+                : "Enable a valid model to chat…"
             }
             value={userInput}
-            onChange={(e) => setUserInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSend("text")}
-            className="w-full border-0 outline-none bg-transparent text-sm placeholder-gray-500"
             disabled={!isAnyModelEnabled}
+            onChange={(e) => setUserInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleSend()}
           />
+
           <div className="mt-3 flex justify-between items-center">
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => isAnyModelEnabled && fileInputRef.current?.click()}
               disabled={!isAnyModelEnabled}
+              onClick={() => fileInputRef.current?.click()}
             >
-              <Paperclip className="h-5 w-5" />
+              <Paperclip />
             </Button>
+
             <input
-              type="file"
-              hidden
               ref={fileInputRef}
+              hidden
+              type="file"
               onChange={(e) => {
-                const file = e.target.files[0];
-                if (file) {
-                  setSelectedFile(file);
-                  handleSend("file");
-                }
+                setSelectedFile(e.target.files[0]);
+                handleSend("file");
               }}
             />
-            <div className="flex gap-4">
+
+            <div className="flex gap-3">
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={handleAudioRecording}
                 disabled={!isAnyModelEnabled}
+                onClick={handleAudioRecording}
               >
                 {isRecording ? (
-                  <StopCircle className="text-red-500 h-6 w-6" />
+                  <StopCircle className="text-red-500" />
                 ) : (
-                  <Mic className="h-5 w-5" />
+                  <Mic />
                 )}
               </Button>
+
               <Button
                 size="icon"
-                onClick={() => handleSend("text")}
                 disabled={!userInput.trim() || !isAnyModelEnabled}
+                onClick={() => handleSend()}
               >
                 <Send />
               </Button>
             </div>
           </div>
-          {selectedFile && (
-            <p className="text-xs text-gray-500 mt-2">📎 {selectedFile.name}</p>
-          )}
         </div>
       </div>
     </div>
   );
 }
-
-export default ChatInputBox;

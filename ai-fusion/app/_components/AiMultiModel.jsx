@@ -1,7 +1,7 @@
 "use client";
-import AiModelList from "@/shared/AiModelList";
-import Image from "next/image";
+
 import React, { useContext, useEffect, useState } from "react";
+import Image from "next/image";
 import {
   Select,
   SelectContent,
@@ -12,266 +12,296 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Lock, MessageSquare } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { AiSelectedModelContext } from "@/context/AiSelectedModelContext";
+import {
+  Lock,
+  ChevronDown,
+  ChevronUp,
+  MessageSquare,
+} from "lucide-react";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 import { useUser } from "@clerk/clerk-react";
-import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
-import { db } from "@/config/FirebaseConfig";
-import { useAuth } from "@clerk/nextjs";
 
-function AiMultiModel({ activeChatId }) {
+import AiModelList from "@/shared/AiModelList";
+import { DefaultModel } from "@/shared/AiModelsShared";
+import { db } from "@/config/FirebaseConfig";
+import { AiSelectedModelContext } from "@/context/AiSelectedModelContext";
+
+/* =====================================================
+   HELPERS
+===================================================== */
+const isFreeModel = (modelName, subModelId) =>
+  DefaultModel[modelName]?.modelId === subModelId;
+
+/* =====================================================
+   MESSAGE FORMATTERS
+===================================================== */
+const cleanText = (text = "") =>
+  text
+    .replace(/[*#`]+/g, "")
+    .replace(/-{3,}/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+const renderAssistantMessage = (content) =>
+  cleanText(content)
+    .split("\n")
+    .map((line, i) => {
+      const t = line.trim();
+      if (!t) return null;
+
+      if (/^[-•]/.test(t)) {
+        return (
+          <li key={i} className="ml-4 list-disc text-sm">
+            {t.replace(/^[-•]\s*/, "")}
+          </li>
+        );
+      }
+
+      if (t.endsWith(":")) {
+        return (
+          <p key={i} className="mt-3 font-semibold text-sm">
+            {t}
+          </p>
+        );
+      }
+
+      return (
+        <p key={i} className="text-sm leading-relaxed">
+          {t}
+        </p>
+      );
+    });
+
+export default function AiMultiModel({ activeChatId }) {
   const { messages, setMessages, aiSelectedModels, setAiSelectedModels } =
     useContext(AiSelectedModelContext);
-  const { user } = useUser();
-  const { has } = useAuth(); // premium check
 
-  const [aiModelList, setAiModelList] = useState(() =>
-    AiModelList.map((model) => {
-      const firstAvailable = has
-        ? model.subModel[0]
-        : model.subModel.find((s) => !s.premium);
-      return {
-        ...model,
-        enable: !!firstAvailable,
-        defaultSubModel: firstAvailable?.id || null,
-      };
-    })
+  const { user } = useUser();
+
+  const isPremium =
+    user?.publicMetadata?.plan === "premium" ||
+    user?.privateMetadata?.isPremium === true;
+
+  /* =====================================================
+     MODEL META
+  ===================================================== */
+  const [models] = useState(() =>
+    AiModelList.map((m) => ({
+      ...m,
+      freeSubModels: m.subModel.filter((s) =>
+        isFreeModel(m.model, s.id)
+      ),
+      premiumSubModels: m.subModel.filter(
+        (s) => !isFreeModel(m.model, s.id)
+      ),
+    }))
   );
 
-  // ------------------------
-  // Load messages for current chat
-  // ------------------------
+  /* =====================================================
+     INIT CONTEXT
+  ===================================================== */
   useEffect(() => {
-    const loadChat = async () => {
-      if (!user || !activeChatId) return;
-      const chatRef = doc(db, "users", user.id, "chats", activeChatId);
-      const snap = await getDoc(chatRef);
-      if (snap.exists()) {
-        const data = snap.data();
-        if (data.messages) setMessages(data.messages);
-      } else {
-        setMessages({});
-      }
-    };
-    loadChat();
-  }, [user, activeChatId, setMessages]);
+    setAiSelectedModels((prev) => {
+      const next = { ...prev };
 
-  // ------------------------
-  // Save all messages on change
-  // ------------------------
+      models.forEach((model) => {
+        if (!next[model.model]) {
+          const defaultSub =
+            isPremium
+              ? model.subModel[0]?.id
+              : model.freeSubModels[0]?.id;
+
+          if (!defaultSub) return;
+
+          next[model.model] = {
+            enable: true,
+            modelId: defaultSub,
+          };
+        }
+      });
+
+      return next;
+    });
+  }, [models, isPremium, setAiSelectedModels]);
+
+  /* =====================================================
+     LOAD CHAT
+  ===================================================== */
   useEffect(() => {
     if (!user || !activeChatId) return;
-    const saveMessages = async () => {
-      const chatRef = doc(db, "users", user.id, "chats", activeChatId);
-      await setDoc(
-        chatRef,
-        {
-          messages,
-          updatedAt: new Date().toISOString(),
-        },
-        { merge: true }
-      );
+
+    const load = async () => {
+      const ref = doc(db, "users", user.id, "chats", activeChatId);
+      const snap = await getDoc(ref);
+      setMessages(snap.exists() ? snap.data().messages || {} : {});
     };
-    saveMessages();
+
+    load();
+  }, [user, activeChatId, setMessages]);
+
+  /* =====================================================
+     SAVE CHAT
+  ===================================================== */
+  useEffect(() => {
+    if (!user || !activeChatId) return;
+
+    const safe = JSON.parse(JSON.stringify(messages));
+
+    setDoc(
+      doc(db, "users", user.id, "chats", activeChatId),
+      { messages: safe, updatedAt: Date.now() },
+      { merge: true }
+    );
   }, [messages, user, activeChatId]);
 
-  // ------------------------
-  // Model toggle handlers
-  // ------------------------
-  const onToggleChange = (model, value) => {
-    setAiModelList((prev) =>
-      prev.map((item) =>
-        item.model === model ? { ...item, enable: value } : item
-      )
-    );
+  /* =====================================================
+     HANDLERS
+  ===================================================== */
+  const toggleModel = (model, value) => {
     setAiSelectedModels((prev) => ({
       ...prev,
-      [model]: { ...(prev[model] || {}), enable: value },
+      [model]: { ...prev[model], enable: value },
     }));
   };
 
-  const onSelectValue = (model, value) => {
+  const selectSubModel = (model, value) => {
+    if (!isPremium && !isFreeModel(model, value)) return;
+
     setAiSelectedModels((prev) => ({
       ...prev,
       [model]: { ...prev[model], modelId: value },
     }));
   };
 
-  const formatMessageContent = (content) => {
-    const cleanContent = content.replace(/[^\w\s.,!?'"():%-]/g, "");
-    const lines = cleanContent.split("\n");
-    return lines.map((line, idx) => {
-      line = line.trim();
-      if (!line) return null;
-      if (line.startsWith("- ")) {
-        return (
-          <li key={idx} className="ml-4 list-disc text-sm leading-relaxed">
-            {line.substring(2)}
-          </li>
-        );
-      }
-      if (line.endsWith(":")) {
-        return (
-          <h3
-            key={idx}
-            className="text-[15px] font-semibold text-gray-100 mt-2 mb-1"
-          >
-            {line}
-          </h3>
-        );
-      }
-      return (
-        <p
-          key={idx}
-          className="text-[14px] text-gray-800 dark:text-gray-200 leading-relaxed"
-        >
-          {line}
-        </p>
-      );
-    });
-  };
-
-  // ------------------------
-  // Render Models & Messages
-  // ------------------------
+  /* =====================================================
+     UI
+  ===================================================== */
   return (
-    <div className="flex flex-row overflow-x-auto no-scrollbar gap-4 mt-2 h-[70vh] p-4">
-      {aiModelList.map((model, index) => {
-        const hasFreeModels = model.subModel.some((s) => !s.premium);
-        const hasPremiumModels = model.subModel.some((s) => s.premium);
+    <div className="flex gap-6 px-6 py-5 overflow-x-auto scrollbar-hide">
+      {models.map((model) => {
+        const state = aiSelectedModels[model.model];
+        const enabled = !!state?.enable;
 
         return (
           <div
-            key={index}
-            className={`flex flex-col border rounded-2xl shadow-md bg-card/20 
-              hover:bg-card/30 transition-all duration-200
-              h-full p-4 ${
-                model.enable ? "min-w-[400px] max-w-[420px]" : "min-w-[160px]"
-              }`}
+            key={model.model}
+            className={`
+              shrink-0 rounded-2xl border bg-background
+              shadow-sm hover:shadow-md transition
+              w-[320px] sm:w-[360px] lg:w-[400px]
+              h-[440px]
+              flex flex-col
+              ${enabled ? "opacity-100" : "opacity-60"}
+            `}
           >
-            <div className="flex w-full items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
+            {/* HEADER */}
+            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b bg-muted/30">
+              {/* LEFT: ICON + NAME */}
+              <div className="flex items-center gap-2 min-w-0">
                 <Image
                   src={model.icon}
                   alt={model.model}
-                  width={28}
-                  height={28}
-                  className="rounded-md"
+                  width={22}
+                  height={22}
                 />
-                {model.enable && (
-                  <Select
-                    value={aiSelectedModels[model.model]?.modelId || ""}
-                    onValueChange={(v) => onSelectValue(model.model, v)}
-                  >
-                    <SelectTrigger className="w-[180px]">
-                      <SelectValue placeholder="Select Model" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {hasFreeModels && (
-                        <SelectGroup className="px-3">
-                          <SelectLabel className="text-sm text-gray-400">
-                            Free
-                          </SelectLabel>
-                          {model.subModel
-                            .filter((s) => !s.premium)
-                            .map((sub, i) => (
-                              <SelectItem key={i} value={sub.id}>
-                                {sub.name}
-                              </SelectItem>
-                            ))}
-                        </SelectGroup>
-                      )}
-                      {hasPremiumModels && (
-                        <SelectGroup className="px-3">
-                          <SelectLabel className="text-sm text-gray-400">
-                            Premium
-                          </SelectLabel>
-                          {model.subModel
-                            .filter((s) => s.premium)
-                            .map((sub, i) => (
-                              <SelectItem
-                                key={i}
-                                value={sub.id}
-                                disabled={!has}
-                              >
-                                {sub.name}{" "}
-                                {!has && <Lock className="inline ml-1 w-4 h-4" />}
-                              </SelectItem>
-                            ))}
-                        </SelectGroup>
-                      )}
-                    </SelectContent>
-                  </Select>
-                )}
+                <span className="text-sm font-medium truncate">
+                  {model.model}
+                </span>
               </div>
 
-              {model.enable ? (
+              {/* RIGHT: SUBMODEL + TOGGLE */}
+              <div className="flex items-center gap-2">
+                <Select
+                  value={state?.modelId || ""}
+                  onValueChange={(v) =>
+                    selectSubModel(model.model, v)
+                  }
+                  disabled={!enabled}
+                >
+                  <SelectTrigger className="h-7 text-xs w-[120px]">
+                    <SelectValue placeholder="Variant" />
+                  </SelectTrigger>
+
+                  <SelectContent>
+                    {model.freeSubModels.length > 0 && (
+                      <SelectGroup>
+                        <SelectLabel>Free</SelectLabel>
+                        {model.freeSubModels.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {s.name}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    )}
+
+                    {model.premiumSubModels.length > 0 && (
+                      <SelectGroup>
+                        <SelectLabel>Premium</SelectLabel>
+                        {model.premiumSubModels.map((s) => (
+                          <SelectItem
+                            key={s.id}
+                            value={s.id}
+                            disabled={!isPremium}
+                          >
+                            {s.name}
+                            {!isPremium && (
+                              <Lock className="inline ml-2 w-3 h-3" />
+                            )}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    )}
+                  </SelectContent>
+                </Select>
+
+                {enabled ? (
+                  <ChevronUp className="w-4 h-4 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                )}
+
                 <Switch
-                  checked={model.enable}
-                  onCheckedChange={(v) => onToggleChange(model.model, v)}
+                  checked={enabled}
+                  onCheckedChange={(v) =>
+                    toggleModel(model.model, v)
+                  }
                 />
-              ) : (
-                <MessageSquare
-                  className="cursor-pointer"
-                  onClick={() => onToggleChange(model.model, true)}
-                />
-              )}
+              </div>
             </div>
 
-            {!has && model.premium && model.enable && (
-              <div className="flex items-center justify-center h-full">
-                <Button>
-                  <Lock className="mr-2 w-4 h-4" /> Upgrade To Unlock
-                </Button>
-              </div>
-            )}
+            {/* CHAT */}
+            <div className="flex-1 px-4 py-4 space-y-3 overflow-y-auto">
+              {(messages[model.model] || []).length === 0 && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <MessageSquare className="w-4 h-4" />
+                  No messages yet
+                </div>
+              )}
 
-            {model.enable && (
-              <div className="flex-1 p-4 space-y-4 overflow-y-auto">
-                {(messages[model.model] || []).map((m, i) => (
-                  <div
-                    key={i}
-                    className={`flex w-full ${
-                      m.role === "user" ? "justify-end" : "justify-start"
-                    }`}
-                  >
-                    <div
-                      className={`rounded-2xl px-4 py-3 max-w-[75%] shadow-sm ${
-                        m.role === "user"
-                          ? "self-end font-[cursive] bg-blue-100 text-blue-900 dark:bg-gray-800 dark:text-white"
-                          : "bg-gray-100 text-blue-900 border border-gray-300 dark:bg-gray-950 dark:text-gray-200 dark:border-gray-800"
-                      }`}
-                    >
-                      {m.role === "assistant" && (
-                        <div className="flex items-center gap-2 mb-1">
-                          <Image
-                            src={model.icon}
-                            alt="model-logo"
-                            width={18}
-                            height={18}
-                            className="rounded-sm opacity-80"
-                          />
-                          <span className="text-xs text-gray-400 font-medium">
-                            {m.model ?? model.model}
-                          </span>
-                        </div>
-                      )}
-                      <div className="whitespace-pre-line">
-                        {m.role === "assistant"
-                          ? formatMessageContent(m.content)
-                          : m.content}
-                      </div>
-                    </div>
+              {(messages[model.model] || []).map((m, i) => (
+                <div
+                  key={i}
+                  className={`flex ${
+                    m.role === "user"
+                      ? "justify-end"
+                      : "justify-start"
+                  }`}
+                >
+                  <div className="max-w-[80%] rounded-xl px-3 py-2 bg-muted">
+                    {m.role === "assistant" ? (
+                      <ul className="space-y-1">
+                        {renderAssistantMessage(m.content)}
+                      </ul>
+                    ) : (
+                      <p className="text-sm">{m.content}</p>
+                    )}
                   </div>
-                ))}
-              </div>
-            )}
+                </div>
+              ))}
+            </div>
           </div>
         );
       })}
     </div>
   );
 }
-
-export default AiMultiModel;

@@ -1,4 +1,5 @@
 "use client";
+
 import React, { useEffect, useState } from "react";
 import { ThemeProvider as NextThemesProvider } from "next-themes";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -9,69 +10,123 @@ import { doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "@/config/FirebaseConfig";
 import { AiSelectedModelContext } from "@/context/AiSelectedModelContext";
 import { DefaultModel } from "@/shared/AiModelsShared";
+import AiModelList from "@/shared/AiModelList";
 import { UserDetailContext } from "@/context/userDetailContext";
+
+/* =====================================================
+   🔥 FIRESTORE SAFE NORMALIZER
+===================================================== */
+const normalizeModelSelection = (models) => {
+  const safe = {};
+
+  AiModelList.forEach((model) => {
+    const incoming = models?.[model.model];
+
+    const fallbackModelId =
+      DefaultModel?.[model.model]?.modelId ??
+      model.subModel?.[0]?.id ??
+      null;
+
+    safe[model.model] = {
+      enable: incoming?.enable ?? true,
+      modelId: incoming?.modelId ?? fallbackModelId, // 🚫 NEVER undefined
+    };
+  });
+
+  return safe;
+};
 
 function Provider({ children, ...props }) {
   const { user } = useUser();
-  const [aiSelectedModels, setAiSelectedModels] = useState(DefaultModel);
-  const [userDetails, setUserDetails] = useState();
-  const [messages, setMessages] = useState({});
 
+  const [aiSelectedModels, setAiSelectedModels] = useState({});
+  const [messages, setMessages] = useState({});
+  const [userDetails, setUserDetails] = useState(null);
+
+  /* =====================================================
+     CREATE / LOAD USER
+  ===================================================== */
   useEffect(() => {
     if (user) {
-      CreateNewUser();
+      createOrLoadUser();
     }
   }, [user]);
 
+  /* =====================================================
+     SAVE MODEL PREF (SAFE)
+  ===================================================== */
   useEffect(() => {
-    if (user && aiSelectedModels) {
-      updateAiModelSelection();
+    if (user && Object.keys(aiSelectedModels).length > 0) {
+      saveModelSelection();
     }
   }, [aiSelectedModels]);
 
-  const updateAiModelSelection = async () => {
+  /* =====================================================
+     SAVE MODEL PREF TO FIRESTORE
+  ===================================================== */
+  const saveModelSelection = async () => {
     try {
       const email = user?.primaryEmailAddress?.emailAddress;
       if (!email) return;
 
-      const docRef = doc(db, "users", email);
-      await setDoc(docRef, { selectedModelPref: aiSelectedModels }, { merge: true });
-    } catch (error) {
-      console.error("Error updating model selection:", error);
+      const safeSelection = normalizeModelSelection(aiSelectedModels);
+
+      await setDoc(
+        doc(db, "users", email),
+        { selectedModelPref: safeSelection },
+        { merge: true }
+      );
+    } catch (err) {
+      console.error("❌ Error saving model preference:", err);
     }
   };
 
-  const CreateNewUser = async () => {
+  /* =====================================================
+     CREATE OR LOAD USER
+  ===================================================== */
+  const createOrLoadUser = async () => {
     try {
       const email = user?.primaryEmailAddress?.emailAddress;
       if (!email) return;
 
-      const userRef = doc(db, "users", email);
-      const userSnap = await getDoc(userRef);
+      const ref = doc(db, "users", email);
+      const snap = await getDoc(ref);
 
-      if (!userSnap.exists()) {
+      if (!snap.exists()) {
+        const defaultModels = normalizeModelSelection(DefaultModel);
+
         const userData = {
           email,
-          name: `${user?.firstName || ""} ${user?.lastName || ""}`,
+          name: `${user?.firstName || ""} ${user?.lastName || ""}`.trim(),
           remainingMsg: 15,
           plan: "free",
           credits: 1000,
           createdAt: new Date(),
+          selectedModelPref: defaultModels,
         };
-        await setDoc(userRef, userData);
+
+        await setDoc(ref, userData);
+
         setUserDetails(userData);
+        setAiSelectedModels(defaultModels);
       } else {
-        const userInfo = userSnap.data();
-        if (userInfo.selectedModelPref) {
-          setAiSelectedModels(userInfo.selectedModelPref ?? DefaultModel);
-        }
-        setUserDetails(userInfo);
+        const data = snap.data();
+
+        const safeModels = normalizeModelSelection(
+          data.selectedModelPref ?? DefaultModel
+        );
+
+        setUserDetails(data);
+        setAiSelectedModels(safeModels);
       }
-    } catch (error) {
-      console.error("Error creating user:", error);
+    } catch (err) {
+      console.error("❌ Error creating/loading user:", err);
     }
   };
 
+  /* =====================================================
+     RENDER
+  ===================================================== */
   return (
     <NextThemesProvider
       attribute="class"
@@ -82,11 +137,16 @@ function Provider({ children, ...props }) {
     >
       <UserDetailContext.Provider value={{ userDetails, setUserDetails }}>
         <AiSelectedModelContext.Provider
-          value={{ aiSelectedModels, setAiSelectedModels, messages, setMessages }}
+          value={{
+            aiSelectedModels,
+            setAiSelectedModels,
+            messages,
+            setMessages,
+          }}
         >
           <SidebarProvider>
             <AppSidebar />
-            <div className="w-full">
+            <div className="w-full min-h-screen">
               <AppHeader />
               {children}
             </div>

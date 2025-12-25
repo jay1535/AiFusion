@@ -1,13 +1,18 @@
 "use client";
+
 import React from "react";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
-import { UserButton, useUser } from "@clerk/clerk-react";
+import {
+  UserButton,
+  useUser,
+  SignInButton,
+} from "@clerk/clerk-react";
 import Image from "next/image";
 
 function AppHeader() {
   const { user } = useUser();
-  const { open, setOpen } = useSidebar(); // sidebar state + control
+  const { open, setOpen } = useSidebar();
 
   return (
     <div className="p-3 w-full shadow-md flex justify-between items-center bg-background">
@@ -18,10 +23,10 @@ function AppHeader() {
         ) : (
           <div
             className="flex items-center gap-2 select-none cursor-pointer"
-            onClick={() => setOpen(true)} // open sidebar on logo click
+            onClick={() => setOpen(true)}
           >
             <Image
-              src="/logo.svg" // replace with your actual logo
+              src="/logo.svg"
               alt="Logo"
               width={36}
               height={36}
@@ -35,9 +40,11 @@ function AppHeader() {
       {/* Right side: Sign In / UserButton */}
       <div>
         {!user ? (
-          <Button variant="outline">Sign In</Button>
+          <SignInButton mode="modal">
+            <Button variant="outline">Sign In</Button>
+          </SignInButton>
         ) : (
-          <UserButton/>
+          <UserButton />
         )}
       </div>
     </div>

@@ -1,5 +1,6 @@
 "use client";
-import React, { useContext, useEffect, useState } from "react";
+
+import React, { useContext, useEffect, useMemo, useState } from "react";
 import {
   Sidebar,
   SidebarContent,
@@ -11,7 +12,12 @@ import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "next-themes";
 import { Logs, MessageSquare, Moon, Sun, Zap } from "lucide-react";
-import { SignInButton, useAuth, UserButton, useUser } from "@clerk/nextjs";
+import {
+  SignInButton,
+  UserButton,
+  useUser,
+  useAuth,
+} from "@clerk/nextjs";
 import UsageCreditProgress from "./UsageCreditProgress";
 import {
   collection,
@@ -31,207 +37,213 @@ const STATIC_LOGO = "/logo.svg";
 function AppSidebar() {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
+
   const { user } = useUser();
-  const [chatHistory, setChatHistory] = useState([]);
+  const { has, isLoaded: authLoaded } = useAuth();
   const { messages, setMessages } = useContext(AiSelectedModelContext);
+
+  const [chatHistory, setChatHistory] = useState([]);
   const [freeMessageCount, setFreeMessageCount] = useState(0);
-  const { has } = useAuth();
+
+  /* ================= PREMIUM CHECK ================= */
+  const isPremium = useMemo(() => {
+    if (!authLoaded) return false;
+    return has({ plan: "premium" });
+  }, [authLoaded, has]);
 
   useEffect(() => setMounted(true), []);
 
-  // ✅ Fetch remaining tokens
-  const getRemainingTokenMsgs = async () => {
-    try {
-      const result = await axios.post("/api/user-remaining-msg", { token: 0 });
-      setFreeMessageCount(result?.data?.remainingToken || 0);
-    } catch (err) {
-      console.error("Error fetching remaining tokens:", err);
-      setFreeMessageCount(0);
-    }
-  };
+  /* ================= MESSAGE COUNT (STABLE) ================= */
+  const messageCount = useMemo(
+    () => Object.keys(messages || {}).length,
+    [messages]
+  );
 
+  /* ================= FETCH FREE MSGS ================= */
   useEffect(() => {
+    if (!user || isPremium) return;
+
+    const getRemainingTokenMsgs = async () => {
+      try {
+        const res = await axios.post("/api/user-remaining-msg", { token: 0 });
+        setFreeMessageCount(res?.data?.remainingToken || 0);
+      } catch {
+        setFreeMessageCount(0);
+      }
+    };
+
     getRemainingTokenMsgs();
-  }, [messages]);
+  }, [user?.id, isPremium, messageCount]);
 
-  // ✅ Real-time listener for chat history
+  /* ================= CHAT HISTORY (ONLY IF LOGGED IN) ================= */
   useEffect(() => {
-    if (!user?.primaryEmailAddress?.emailAddress) return;
+    if (!user?.primaryEmailAddress?.emailAddress) {
+      setChatHistory([]);
+      return;
+    }
 
     const q = query(
       collection(db, "chatHistory"),
-      where("userEmail", "==", user.primaryEmailAddress.emailAddress)
+      where(
+        "userEmail",
+        "==",
+        user.primaryEmailAddress.emailAddress
+      )
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsub = onSnapshot(q, (snapshot) => {
       const chats = snapshot.docs
         .map((doc) => doc.data())
-        .filter((chat) => Object.keys(chat.messages || {}).length > 0)
+        .filter((c) => Object.keys(c.messages || {}).length > 0)
         .sort((a, b) => (b.lastUpdated || 0) - (a.lastUpdated || 0));
+
       setChatHistory(chats);
     });
 
-    return () => unsubscribe();
-  }, [user]);
+    return () => unsub();
+  }, [user?.primaryEmailAddress?.emailAddress]);
 
-  // ✅ Helper: Get last message from chat
-  const getLastUserMessageFromChat = (chat) => {
-    const allMessages = Object.values(chat.messages || {}).flat();
-    const userMessages = allMessages.filter((msg) => msg.role === "user");
-    const lastUserMessage =
-      userMessages[userMessages.length - 1]?.content || "No message yet";
-    const lastUpdated = chat.lastUpdated || Date.now();
-    const formattedDate = moment(lastUpdated).format("MMM D, YYYY, h:mm A");
-    return {
-      chatId: chat.chatId,
-      message: lastUserMessage,
-      lastUpdated: formattedDate,
-    };
-  };
-
-  // ✅ Handler for “New Chat” — clears messages and resets context
   const handleNewChat = () => {
-    setMessages([]); // clear chat context
-    localStorage.removeItem("currentChatId"); // optional: clear stored chat id
+    setMessages({});
+    localStorage.removeItem("currentChatId");
   };
 
   if (!mounted) return null;
 
   return (
     <Sidebar>
-      {/* HEADER */}
+      {/* ================= HEADER ================= */}
       <SidebarHeader>
-        <div className="p-3">
+        <div className="p-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3 group">
-              <Image
-                src={STATIC_LOGO}
-                alt="Logo"
-                width={30}
-                height={30}
-                className="rounded-md group-hover:rotate-6 transition-transform duration-200"
-              />
-              <h2 className="font-bold text-xl transition-colors duration-200">
+            <div className="flex items-center gap-3">
+              <Image src={STATIC_LOGO} alt="Logo" width={30} height={30} />
+              <h2 className="font-bold text-xl tracking-tight">
                 AiFusion
               </h2>
             </div>
 
             <Button
-              variant="outline"
+              variant="ghost"
               size="icon"
-              onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-              className="transition-colors duration-200 hover:bg-accent"
+              onClick={() =>
+                setTheme(theme === "light" ? "dark" : "light")
+              }
             >
               {theme === "light" ? <Sun /> : <Moon />}
             </Button>
           </div>
 
-          {user ? (
-            <Link href="/" onClick={handleNewChat}>
-              <Button className="w-full mt-5 transition-all duration-300">
-                <MessageSquare /> New Chat
-              </Button>
-            </Link>
-          ) : (
-            <SignInButton>
-              <Button className="w-full mt-5 transition-all duration-300">
-                <MessageSquare /> New Chat
-              </Button>
-            </SignInButton>
-          )}
+          <Link href="/" onClick={handleNewChat}>
+            <Button className="w-full mt-5 gap-2">
+              <MessageSquare className="w-4 h-4" />
+              New Chat
+            </Button>
+          </Link>
         </div>
       </SidebarHeader>
 
-      {/* CONTENT */}
+      {/* ================= CONTENT ================= */}
       <SidebarContent>
         <SidebarGroup>
-          <div className="p-3">
-            <h2 className="font-bold text-lg flex items-center gap-2">
-              <Logs className="text-gray-500" /> Chats
+          <div className="px-4">
+            <h2 className="font-semibold text-sm flex items-center gap-2 text-muted-foreground">
+              <Logs className="w-4 h-4" /> Chats
             </h2>
 
+            {/* 🔒 NOT LOGGED IN → NO CHATS */}
             {!user && (
-              <p className="text-sm mt-2 text-muted-foreground">
-                Sign in to view chat history.
+              <p className="mt-4 text-sm text-muted-foreground">
+                Sign in to view your chats
               </p>
             )}
 
-            {chatHistory.length === 0 && user && (
-              <p className="text-sm mt-2 text-muted-foreground">
-                No chat history yet.
-              </p>
+            {/* ✅ LOGGED IN → SHOW CHATS */}
+            {user && (
+              <div className="mt-4 flex flex-col gap-3">
+                {chatHistory.map((chat, index) => {
+                  const msgs = Object.values(chat.messages || {}).flat();
+                  const lastMsg =
+                    msgs
+                      .filter((m) => m.role === "user")
+                      .pop()?.content || "No message";
+
+                  const date = moment(chat.lastUpdated).format(
+                    "MMM D • h:mm A"
+                  );
+
+                  return (
+                    <Link
+                      key={index}
+                      href={"?chatId=" + chat.chatId}
+                      className="rounded-lg border bg-muted/40 hover:bg-muted transition px-3 py-2"
+                    >
+                      <p className="text-sm font-medium truncate">
+                        {lastMsg}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {date}
+                      </p>
+                    </Link>
+                  );
+                })}
+              </div>
             )}
-
-            {/* Chat History Cards */}
-            <div className="mt-4 flex flex-col gap-3">
-              {chatHistory.map((chat, index) => {
-                const lastMsg = getLastUserMessageFromChat(chat);
-                return (
-                  <Link
-                    href={"?chatId=" + chat.chatId}
-                    key={index}
-                    className="relative overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700
-                    bg-gray-50 dark:bg-gray-800/40 shadow-sm
-                    transition-all duration-300 ease-out
-                    hover:shadow-md hover:-translate-y-[2px] hover:bg-gray-100 dark:hover:bg-gray-700/50"
-                  >
-                    <div className="flex items-start gap-3 p-3">
-                      <div className="flex-shrink-0 mt-1">
-                        <Image
-                          src={STATIC_LOGO}
-                          alt="Logo"
-                          width={24}
-                          height={24}
-                          className="rounded-md transition-transform duration-300"
-                        />
-                      </div>
-
-                      <div className="flex flex-col flex-1 min-w-0">
-                        <span className="text-sm text-gray-900 dark:text-gray-100 font-medium truncate transition-colors duration-200">
-                          {lastMsg.message}
-                        </span>
-                        <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                          {lastMsg.lastUpdated}
-                        </span>
-                      </div>
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
           </div>
         </SidebarGroup>
       </SidebarContent>
 
-      {/* FOOTER */}
+      {/* ================= FOOTER ================= */}
       <SidebarFooter>
-        <div className="p-3 mb-10">
-          {!user ? (
+        <div className="px-4 pb-4 space-y-4">
+          {!user && (
             <SignInButton mode="modal">
               <Button className="w-full" size="lg">
-                SignIn / SignUp
+                Sign In / Sign Up
               </Button>
             </SignInButton>
-          ) : (
-            <div>
-              {!has && (
-                <div>
-                  <UsageCreditProgress remainingToken={freeMessageCount} />
-                  <PricingModel>
-                    <Button className="w-full mb-3 transition-all duration-300">
-                      <Zap /> Upgrade to Pro
-                    </Button>
-                  </PricingModel>
+          )}
+
+          {/* 🔥 FREE USAGE (ONLY FREE USERS) */}
+          {authLoaded && user && !isPremium && (
+            <>
+              <div className="h-px bg-gradient-to-r from-transparent via-border to-transparent" />
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    Free Plan
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    Limited
+                  </span>
                 </div>
-              )}
-              <Button
-                className="flex w-full hover:bg-accent transition-colors duration-200"
-                variant="ghost"
-              >
-                <UserButton />
-                <h2>Profile Settings</h2>
-              </Button>
-            </div>
+
+                <UsageCreditProgress
+                  remainingToken={freeMessageCount}
+                />
+
+                <PricingModel>
+                  <Button
+                    size="sm"
+                    className="w-full gap-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white"
+                  >
+                    <Zap className="w-4 h-4" />
+                    Upgrade to Premium
+                  </Button>
+                </PricingModel>
+              </div>
+            </>
+          )}
+
+          {user && (
+            <Button
+              variant="ghost"
+              className="w-full justify-start gap-2"
+            >
+              <UserButton />
+              <span className="text-sm">Profile Settings</span>
+            </Button>
           )}
         </div>
       </SidebarFooter>
